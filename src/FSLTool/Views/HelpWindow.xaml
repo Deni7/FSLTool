@@ -1,0 +1,41 @@
+<Window x:Class="FSLTool.Views.HelpWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="FSLTool — довідка"
+        Icon="pack://application:,,,/FSLTool;component/Assets/app.ico"
+        Width="1180" Height="820" MinWidth="760" MinHeight="480"
+        Background="{StaticResource Bg}" FontFamily="{StaticResource UiFont}" FontSize="13"
+        TextOptions.TextFormattingMode="Display" UseLayoutRounding="True"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="True">
+    <Grid x:Name="Root">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="250"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- contents + search -->
+        <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0">
+            <DockPanel Margin="14,16,10,14">
+                <TextBlock DockPanel.Dock="Top" Text="ДОВІДКА" Style="{StaticResource SectionTitle}"/>
+                <Grid DockPanel.Dock="Top" Margin="0,0,0,4">
+                    <TextBox x:Name="SearchBox" Padding="28,6,8,6" KeyDown="SearchBox_KeyDown"
+                             ToolTip="Enter — наступний збіг, Shift+Enter — з початку"/>
+                    <TextBlock Text="⌕" FontSize="15" Foreground="{StaticResource Muted}" Margin="9,0,0,2"
+                               VerticalAlignment="Center" IsHitTestVisible="False"/>
+                    <TextBlock x:Name="SearchHint" Text="Пошук у довідці…" Foreground="{StaticResource Muted}" Margin="29,0,0,0"
+                               VerticalAlignment="Center" IsHitTestVisible="False"/>
+                </Grid>
+                <TextBlock x:Name="SearchStatus" DockPanel.Dock="Top" Style="{StaticResource MutedText}" FontSize="11.5"
+                           Margin="2,0,0,8" TextWrapping="Wrap"/>
+                <TextBlock DockPanel.Dock="Top" Text="ЗМІСТ" Style="{StaticResource SectionTitle}" Margin="0,8,0,6"/>
+                <ListBox x:Name="Toc" DisplayMemberPath="Text" SelectionChanged="Toc_SelectionChanged"
+                         Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+            </DockPanel>
+        </Border>
+
+        <!-- document -->
+        <FlowDocumentScrollViewer x:Name="Viewer" Grid.Column="1" IsToolBarVisible="False"
+                                  IsInactiveSelectionHighlightEnabled="True"
+                                  SelectionBrush="{StaticResource Accent}" VerticalScrollBarVisibility="Auto"/>
+    </Grid>
+</Window>

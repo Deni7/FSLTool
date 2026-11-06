@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <AssemblyName>FSLTool</AssemblyName>
+    <RootNamespace>FSLTool</RootNamespace>
+    <Product>FSLTool — FSLogix Profile Manager</Product>
+    <Version>1.0.0</Version>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <!-- dotnet publish: one self-contained exe, no .NET runtime needed on the file server -->
+  <PropertyGroup Condition="'$(_IsPublishing)' == 'true'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Management" Version="9.0.0" />  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Default rules are embedded; on first start they are written to %ProgramData%\FSLTool\cleanup-rules.json -->
+    <EmbeddedResource Include="cleanup-rules.json" LogicalName="FSLTool.cleanup-rules.json" />
+    <!-- Built-in help (window «Довідка», F1). Keep it in sync with README.md when features change. -->
+    <EmbeddedResource Include="Docs\Help.md" LogicalName="FSLTool.Docs.Help.md" />
+    <Resource Include="Assets\app.ico" />
+    <Resource Include="Assets\logo.png" />
+  </ItemGroup>
+
+</Project>

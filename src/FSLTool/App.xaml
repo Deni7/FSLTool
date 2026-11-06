@@ -1,0 +1,18 @@
+<Application x:Class="FSLTool.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:v="clr-namespace:FSLTool.Views">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Themes/Theme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            <v:SeverityBrushConverter x:Key="SevBrush"/>
+            <v:ScaleConverter x:Key="Scale"/>
+            <v:VisibleConverter x:Key="Vis"/>
+            <v:EnumEqualsConverter x:Key="EnumEq"/>
+            <v:FilterMatchConverter x:Key="FilterMatch"/>
+            <v:BoolToLengthConverter x:Key="BoolLength"/>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>
