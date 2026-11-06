@@ -6,7 +6,7 @@
         ResizeMode="NoResize" SizeToContent="WidthAndHeight" ShowInTaskbar="False"
         WindowStartupLocation="CenterOwner" FontFamily="{StaticResource UiFont}" FontSize="13"
         Foreground="{DynamicResource Text}"
-        TextOptions.TextFormattingMode="Display" UseLayoutRounding="True">
+        TextOptions.TextFormattingMode="Ideal" TextOptions.TextRenderingMode="ClearType" UseLayoutRounding="True">
     <!-- outer margin leaves room for the shadow -->
     <Border Margin="18" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource LineSoft}" BorderThickness="1"
             CornerRadius="24" MinWidth="400" MaxWidth="580">

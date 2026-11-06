@@ -178,7 +178,7 @@ During a scan, containers on this server are **not opened**. With hundreds of VH
 ## Details panel
 
 - **Who**: initials, account, SID and full path; the state label (with the session host) and the container flags.
-- **Usage**: a ring with the percentage (colored by the thresholds) and next to it the file size, maximum, used in volume, how much compaction reclaims and the file system state.
+- **Usage**: a ring with the percentage (colored by the thresholds), next to it the file size and maximum size, below them used in volume, how much compaction reclaims and the file system state.
 - **Size history**: a chart of the size over the whole history, growth and forecast.
 - **“All details”** expands the rest: modification time, session, when the information was refreshed and when it was analyzed, the AD account state and last logon date.
 - **Operation progress**: stage, percentage, details and time. The “Cancel” button is here too.

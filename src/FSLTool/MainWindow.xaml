@@ -9,7 +9,7 @@
         Width="1480" Height="900" MinWidth="1180" MinHeight="680"
         Background="{DynamicResource Bg}" Foreground="{DynamicResource Text}"
         FontFamily="{StaticResource UiFont}" FontSize="13"
-        TextOptions.TextFormattingMode="Display" UseLayoutRounding="True"
+        TextOptions.TextFormattingMode="Ideal" TextOptions.TextRenderingMode="ClearType" UseLayoutRounding="True"
         WindowStartupLocation="CenterScreen">
 
     <Window.Resources>
@@ -91,7 +91,8 @@
         <Style x:Key="KvLabel" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
             <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Margin" Value="0,3,12,3"/>
+            <Setter Property="Margin" Value="0,3,10,3"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
         </Style>
         <Style x:Key="KvValue" TargetType="TextBlock">
             <Setter Property="FontSize" Value="12"/>
@@ -794,38 +795,43 @@
                                                 <TextBlock Text="{l:Tr Main.Details.UsageCaption}" Style="{StaticResource MutedText}" FontSize="11" HorizontalAlignment="Center"/>
                                             </StackPanel>
                                         </Grid>
-                                        <Grid VerticalAlignment="Center">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
-                                            <Grid.RowDefinitions>
-                                                <RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/>
-                                            </Grid.RowDefinitions>
-                                            <TextBlock Text="{l:Tr Main.Details.FileSize}" Style="{StaticResource KvLabel}"/>
-                                            <TextBlock Grid.Column="1" Text="{Binding SizeText}" Style="{StaticResource KvValue}"/>
-                                            <TextBlock Grid.Row="1" Text="{l:Tr Main.Details.MaxSize}" Style="{StaticResource KvLabel}"/>
-                                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding MaxSizeText}" Style="{StaticResource KvValue}"/>
-                                            <TextBlock Grid.Row="2" Text="{l:Tr Main.Details.Volume}" Style="{StaticResource KvLabel}"/>
-                                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding VolumeText}" Style="{StaticResource KvValue}"/>
-                                            <TextBlock Grid.Row="3" Text="{l:Tr Main.Details.Reclaimable}" Style="{StaticResource KvLabel}"
-                                                       ToolTip="{l:Tr Main.Details.ReclaimableTip}"/>
-                                            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding ReclaimableDetail}" Style="{StaticResource KvValue}"
-                                                       Foreground="{DynamicResource Accent}"/>
-                                            <TextBlock Grid.Row="4" Text="{l:Tr Main.Details.Fs}" Style="{StaticResource KvLabel}" ToolTip="{l:Tr Main.Details.FsTip}"/>
-                                            <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding FsText}">
-                                                <TextBlock.Style>
-                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource KvValue}">
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding FsDirty}" Value="True">
-                                                                <Setter Property="Foreground" Value="{DynamicResource CritText}"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </TextBlock.Style>
-                                            </TextBlock>
-                                        </Grid>
+                                        <!-- next to the ring: the file size, large -->
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Text="{l:Tr Main.Details.FileSize}" Style="{StaticResource MutedText}"/>
+                                            <TextBlock Text="{Binding SizeText}" FontSize="22" FontWeight="SemiBold" Margin="0,2,0,0"/>
+                                            <TextBlock Text="{l:Tr Main.Grid.OfMax, Arg={Binding MaxSizeText}}" Style="{StaticResource MutedText}"
+                                                       ToolTip="{l:Tr Main.Details.MaxSize}"/>
+                                        </StackPanel>
                                     </DockPanel>
+
+                                    <!-- the other numbers under the ring, across the whole card -->
+                                    <Grid Margin="0,10,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition/><RowDefinition/><RowDefinition/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Text="{l:Tr Main.Details.Volume}" Style="{StaticResource KvLabel}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding VolumeText}" Style="{StaticResource KvValue}"/>
+                                        <TextBlock Grid.Row="1" Text="{l:Tr Main.Details.Reclaimable}" Style="{StaticResource KvLabel}"
+                                                   ToolTip="{l:Tr Main.Details.ReclaimableTip}"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ReclaimableDetail}" Style="{StaticResource KvValue}"
+                                                   Foreground="{DynamicResource Accent}"/>
+                                        <TextBlock Grid.Row="2" Text="{l:Tr Main.Details.Fs}" Style="{StaticResource KvLabel}" ToolTip="{l:Tr Main.Details.FsTip}"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding FsText}">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock" BasedOn="{StaticResource KvValue}">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding FsDirty}" Value="True">
+                                                            <Setter Property="Foreground" Value="{DynamicResource CritText}"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </Grid>
 
                                     <!-- size history -->
                                     <Border Style="{StaticResource SoftCard}" Margin="0,14,0,0" Visibility="{Binding Spark, Converter={StaticResource Vis}}">

@@ -6,7 +6,7 @@
         Icon="pack://application:,,,/FSLTool;component/Assets/app.ico"
         Width="1180" Height="820" MinWidth="760" MinHeight="480"
         Background="{DynamicResource Bg}" Foreground="{DynamicResource Text}" FontFamily="{StaticResource UiFont}" FontSize="13"
-        TextOptions.TextFormattingMode="Display" UseLayoutRounding="True"
+        TextOptions.TextFormattingMode="Ideal" TextOptions.TextRenderingMode="ClearType" UseLayoutRounding="True"
         WindowStartupLocation="CenterOwner" ShowInTaskbar="True">
     <Grid x:Name="Root">
         <Grid.ColumnDefinitions>
