@@ -1,0 +1,13 @@
+{
+  "Lang.Native": "Українська",
+  "Lang.System": "Системна ({0})",
+  "Lang.Label": "Мова інтерфейсу",
+  "Lang.Tooltip": "Мова інтерфейсу для цього користувача Windows. «Системна» — мова Windows, або англійська, якщо перекладу немає.",
+  "Common.Ok": "OK",
+  "Common.Cancel": "Скасувати",
+  "Common.Close": "Закрити",
+  "Common.Yes": "Так",
+  "Common.No": "Ні",
+  "Common.Error": "Помилка",
+  "App.ErrorTitle": "FSLTool — помилка"
+}

@@ -27,6 +27,26 @@ public sealed class AppSettings
     public double WindowHeight { get; set; } = 900;
     public bool WindowMaximized { get; set; }
 
-    /// <summary>Left panel collapsed to a narrow strip (more room for the table).</summary>
-    public bool SidebarCollapsed { get; set; }
+    /// <summary>Email report of the headless mode (edited in settings.json; --smtp / --mail-* options override it).</summary>
+    public MailSettings Mail { get; set; } = new();
+}
+
+/// <summary>"mail" section of settings.json: where the headless mode sends its report.</summary>
+public sealed class MailSettings
+{
+    /// <summary>SMTP server; empty = reports are not sent unless --smtp is given.</summary>
+    public string? SmtpHost { get; set; }
+    public int SmtpPort { get; set; } = 25;
+    /// <summary>STARTTLS (explicit TLS, e.g. port 587). Implicit TLS on 465 is not supported by SmtpClient.</summary>
+    public bool Ssl { get; set; }
+    /// <summary>Sender; empty = fsltool@&lt;computer FQDN&gt;.</summary>
+    public string? From { get; set; }
+    /// <summary>Recipients; empty = no report unless --mail-to is given.</summary>
+    public List<string> To { get; set; } = new();
+    /// <summary>SMTP login; empty = no authentication (anonymous relay).</summary>
+    public string? User { get; set; }
+    /// <summary>Name of the environment variable that holds the SMTP password (the password itself is never stored).</summary>
+    public string? PasswordEnv { get; set; }
+    /// <summary>always | problems | errors.</summary>
+    public string When { get; set; } = "always";
 }

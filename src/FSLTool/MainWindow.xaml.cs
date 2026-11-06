@@ -22,13 +22,13 @@ public partial class MainWindow : Window
         Height = _vm.Settings.WindowHeight;
         WindowState = WindowState.Maximized;
 
-        SourceInitialized += (_, _) => WindowChrome.UseDarkTitleBar(this);
+        WindowChrome.Attach(this);
         // F1 — built-in help (works wherever the focus is in the main window)
         PreviewKeyDown += (_, e) =>
         {
             if (e.Key == Key.F1) { HelpWindow.ShowHelp(this); e.Handled = true; }
-            // Ctrl+B — collapse / expand the left panel (as in VS Code)
-            else if (e.Key == Key.B && Keyboard.Modifiers == ModifierKeys.Control) { _vm.IsSidebarCollapsed = !_vm.IsSidebarCollapsed; e.Handled = true; }
+            // Ctrl+Shift+F — custom filter editor
+            else if (e.Key == Key.F && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift)) { FilterWindow.ShowEditor(this, _vm); e.Handled = true; }
         };
         Loaded += async (_, _) => { if (_vm.Paths.Count > 0) await _vm.RefreshAsync(); };
         Closing += (_, _) =>
@@ -66,6 +66,26 @@ public partial class MainWindow : Window
     }
 
     private void Help_Click(object sender, RoutedEventArgs e) => HelpWindow.ShowHelp(this);
+
+    /// <summary>Language pill in the header: a menu of the languages (the current choice is ticked).</summary>
+    private void Language_Click(object sender, RoutedEventArgs e)
+    {
+        var menu = new System.Windows.Controls.ContextMenu
+        {
+            PlacementTarget = LangButton,
+            Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom,
+        };
+        var current = _vm.SelectedLanguage;
+        foreach (var lang in _vm.Languages)
+        {
+            var item = new System.Windows.Controls.MenuItem { Header = lang.Name, IsChecked = lang == current };
+            item.Click += (_, _) => _vm.SelectedLanguage = lang;
+            menu.Items.Add(item);
+        }
+        menu.IsOpen = true;
+    }
+
+    private void CustomFilter_Click(object sender, RoutedEventArgs e) => FilterWindow.ShowEditor(this, _vm);
 
     /// <summary>
     /// The check-box column: the default first click would sort ascending (unchecked first); here the first click

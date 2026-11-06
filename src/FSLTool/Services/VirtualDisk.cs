@@ -44,8 +44,7 @@ public sealed class AttachedDisk : IDisposable
             {
                 DetachVirtualDisk(handle, 0, 0);
                 throw new InvalidOperationException(
-                    $"Диск підключено (PhysicalDrive{disk}), але том не з'явився за 30 с. " +
-                    "Перевірте SAN policy (diskpart → san) — диски можуть підключатися в стані Offline.");
+                    Loc.T("Svc.Vdisk.NoVolume", disk));
             }
             return new AttachedDisk(handle, imagePath, disk, volume, readOnly);
         }
@@ -329,7 +328,7 @@ public static class StorageWmi
         var parts = s.Get().Cast<System.Management.ManagementObject>().ToList();
         try
         {
-            if (parts.Count == 0) throw new InvalidOperationException($"На диску {diskNumber} не знайдено розділів.");
+            if (parts.Count == 0) throw new InvalidOperationException(Loc.T("Svc.Vdisk.NoPartitions", diskNumber));
             var target = parts.FirstOrDefault(p => (p["AccessPaths"] as string[])?.Any(a =>
                              a.Equals(volumePath, StringComparison.OrdinalIgnoreCase)) == true)
                          ?? parts.OrderByDescending(p => Convert.ToUInt64(p["Size"])).First();
@@ -337,7 +336,7 @@ public static class StorageWmi
 
             using var sup = target.InvokeMethod("GetSupportedSize", null, null);
             uint rc = Convert.ToUInt32(sup["ReturnValue"]);
-            if (rc != 0) throw new InvalidOperationException($"MSFT_Partition.GetSupportedSize повернув {rc}");
+            if (rc != 0) throw new InvalidOperationException(Loc.T("Svc.Vdisk.WmiReturned", "MSFT_Partition.GetSupportedSize", rc));
             ulong max = Convert.ToUInt64(sup["SizeMax"]);
             if (max <= before + (1UL << 20)) return (before, before);   // nothing to gain (< 1 MB)
 
@@ -345,7 +344,7 @@ public static class StorageWmi
             inp["Size"] = max;
             using var res = target.InvokeMethod("Resize", inp, null);
             rc = Convert.ToUInt32(res["ReturnValue"]);
-            if (rc != 0) throw new InvalidOperationException($"MSFT_Partition.Resize повернув {rc}" + ExtStatus(res));
+            if (rc != 0) throw new InvalidOperationException(Loc.T("Svc.Vdisk.WmiReturned", "MSFT_Partition.Resize", rc) + ExtStatus(res));
             return (before, max);
         }
         finally { foreach (var p in parts) p.Dispose(); }
@@ -367,13 +366,13 @@ public static class StorageWmi
                 inp["OfflineScanAndFix"] = true;
                 using var res = v.InvokeMethod("Repair", inp, null);
                 uint rc = Convert.ToUInt32(res["ReturnValue"]);
-                if (rc != 0) throw new InvalidOperationException($"MSFT_Volume.Repair повернув {rc}" + ExtStatus(res));
+                if (rc != 0) throw new InvalidOperationException(Loc.T("Svc.Vdisk.WmiReturned", "MSFT_Volume.Repair", rc) + ExtStatus(res));
                 uint output = res["Output"] is null ? 0 : Convert.ToUInt32(res["Output"]);
                 // Repair-Volume: 0 = NoErrorsFound, 1 = ErrorsFixed
                 return (output switch { 0 => RepairResult.NoErrors, 1 => RepairResult.Fixed, _ => RepairResult.Other }, output);
             }
         }
-        throw new InvalidOperationException("Том не знайдено у MSFT_Volume.");
+        throw new InvalidOperationException(Loc.T("Svc.Vdisk.VolumeNotFound"));
     }
 
     private static string ExtStatus(System.Management.ManagementBaseObject res) =>

@@ -11,12 +11,14 @@
     "exclude    — маски файлів/папок, які НІКОЛИ не видаляються цим правилом.",
     "olderThanDays — видаляти лише файли, старіші за N днів (0 = всі).",
     "containers — до яких контейнерів застосовувати: Profile, ODFC або Any.",
+    "names      — необов'язкові назви правила іншими мовами для інтерфейсу: { \"en\": \"...\" } (інакше показується name).",
     "Точки повторного розбору (junction/symlink) ніколи не обходяться — видаляється лише сам лінк."
   ],
   "globalExclude": [ "desktop.ini", "NTUSER.DAT*", "UsrClass.dat*" ],
   "rules": [
     {
       "name": "Тимчасові файли (Temp)",
+      "names": { "en": "Temporary files (Temp)" },
       "enabled": true,
       "containers": [ "Profile" ],
       "paths": [ "AppData\\Local\\Temp" ],
@@ -25,6 +27,7 @@
     },
     {
       "name": "Кеш Internet / WebCache",
+      "names": { "en": "Internet cache / WebCache" },
       "enabled": true,
       "containers": [ "Profile" ],
       "paths": [
@@ -35,6 +38,7 @@
     },
     {
       "name": "Звіти про помилки та дампи",
+      "names": { "en": "Error reports and dumps" },
       "enabled": true,
       "containers": [ "Profile" ],
       "paths": [
@@ -46,6 +50,7 @@
     },
     {
       "name": "Кеш мініатюр Explorer",
+      "names": { "en": "Explorer thumbnail cache" },
       "enabled": true,
       "containers": [ "Profile" ],
       "paths": [ "AppData\\Local\\Microsoft\\Windows\\Explorer" ],
@@ -54,6 +59,7 @@
     },
     {
       "name": "Google Chrome — кеш",
+      "names": { "en": "Google Chrome — cache" },
       "enabled": true,
       "containers": [ "Profile" ],
       "paths": [
@@ -69,6 +75,7 @@
     },
     {
       "name": "Microsoft Edge — кеш",
+      "names": { "en": "Microsoft Edge — cache" },
       "enabled": true,
       "containers": [ "Profile" ],
       "paths": [
@@ -84,6 +91,7 @@
     },
     {
       "name": "Mozilla Firefox — кеш",
+      "names": { "en": "Mozilla Firefox — cache" },
       "enabled": true,
       "containers": [ "Profile" ],
       "paths": [
@@ -94,6 +102,7 @@
     },
     {
       "name": "Microsoft Teams (classic) — кеш",
+      "names": { "en": "Microsoft Teams (classic) — cache" },
       "enabled": true,
       "containers": [ "Profile" ],
       "paths": [
@@ -108,6 +117,7 @@
     },
     {
       "name": "Microsoft Teams (new) — кеш WebView",
+      "names": { "en": "Microsoft Teams (new) — WebView cache" },
       "enabled": true,
       "containers": [ "Profile" ],
       "paths": [
@@ -119,6 +129,7 @@
     },
     {
       "name": "Кошик користувача",
+      "names": { "en": "User's Recycle Bin" },
       "enabled": true,
       "containers": [ "Any" ],
       "paths": [ "$volume\\$RECYCLE.BIN" ],
@@ -126,6 +137,7 @@
     },
     {
       "name": "Завантаження старші за 180 днів (вимкнено)",
+      "names": { "en": "Downloads older than 180 days (disabled)" },
       "enabled": false,
       "containers": [ "Profile" ],
       "paths": [ "Downloads" ],

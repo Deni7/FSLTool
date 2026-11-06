@@ -12,6 +12,12 @@ namespace FSLTool.ViewModels;
 
 public enum ProfileFilter { All, Problem, Mounted, Orphan, Disabled, Stale, Compactable, Unmeasured }
 
+/// <summary>Item of the language picker: Code = null means "follow the Windows language".</summary>
+public sealed record LangOption(string? Code, string Name);
+
+/// <summary>Item of the theme picker (Settings page).</summary>
+public sealed record ThemeOption(AppTheme Mode, string Name);
+
 public sealed class LogLine
 {
     public DateTime Time { get; init; }
@@ -47,20 +53,28 @@ public sealed class MainViewModel : ObservableObject
         View.Filter = o => o is ProfileInfo p && Matches(p);
         View.SortDescriptions.Add(new SortDescription(nameof(ProfileInfo.UsagePercent), ListSortDirection.Descending));
 
+        _customFilterTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+        _customFilterTimer.Tick += (_, _) => { _customFilterTimer.Stop(); ApplyCustomFilter(); };
+        _customFilter = new FilterGroup();
+        _customFilter.Changed += OnCustomFilterChanged;
+        ReloadSavedFilterNames();
+
         Log.Entry += (t, lvl, msg) => Application.Current?.Dispatcher.BeginInvoke(() =>
         {
             LogLines.Insert(0, new LogLine { Time = t, Level = lvl, Text = msg });
             while (LogLines.Count > 500) LogLines.RemoveAt(LogLines.Count - 1);
+            // badge on the «Журнал» button: warnings / errors since the log was last opened
+            if (!IsLogOpen && lvl is "WARN" or "ERROR") LogAlertCount++;
         });
 
         AddPathCommand = new RelayCommand(_ => AddPath());
         RemovePathCommand = new RelayCommand(p => RemovePath(p as PathEntry), p => p is PathEntry);
         RefreshCommand = new RelayCommand(_ => RefreshAsync(), _ => !IsScanning);
-        RefreshVisibleCommand = new RelayCommand(_ => RefreshItemsAsync(View.Cast<ProfileInfo>().ToList(), "видимі контейнери"),
+        RefreshVisibleCommand = new RelayCommand(_ => RefreshItemsAsync(View.Cast<ProfileInfo>().ToList(), Loc.T("Vm.Refresh.What.Visible")),
             _ => !IsScanning && !IsWorking && VisibleCount > 0);
-        RefreshCheckedCommand = new RelayCommand(_ => RefreshItemsAsync(Profiles.Where(p => p.IsChecked).ToList(), "позначені контейнери"),
+        RefreshCheckedCommand = new RelayCommand(_ => RefreshItemsAsync(Profiles.Where(p => p.IsChecked).ToList(), Loc.T("Vm.Refresh.What.Checked")),
             _ => !IsScanning && !IsWorking && CheckedCount > 0);
-        RefreshAllCommand = new RelayCommand(_ => RefreshItemsAsync(Profiles.ToList(), "усі контейнери"),
+        RefreshAllCommand = new RelayCommand(_ => RefreshItemsAsync(Profiles.ToList(), Loc.T("Vm.Refresh.What.All")),
             _ => !IsScanning && !IsWorking && Profiles.Count > 0);
         RefreshOneCommand = new RelayCommand(p => RefreshItemsAsync(new[] { (ProfileInfo)p! }, ((ProfileInfo)p!).DisplayUser),
             p => p is ProfileInfo { IsBusy: false } && !IsScanning);
@@ -72,27 +86,24 @@ public sealed class MainViewModel : ObservableObject
             Filter = target == Filter ? ProfileFilter.All : target;
         });
 
-        AnalyzeCommand = new RelayCommand(_ => RunOnTargets("Аналіз", (p, pr, ct) => ProfileOperations.Analyze(p, _rules, pr, ct), confirm: null,
+        AnalyzeCommand = new RelayCommand(_ => RunOnTargets(Loc.T("Vm.Op.Analyze"), (p, pr, ct) => ProfileOperations.Analyze(p, _rules, pr, ct), confirm: null,
                 parallel: AnalyzeParallel),
             _ => HasTargets && !IsWorking);
         // quick read-only measurement: exact usage + reclaimable space in seconds, without walking the folders
-        MeasureCommand = new RelayCommand(_ => RunOnTargets("Вимірювання", (p, pr, ct) => ProfileOperations.Measure(p, pr, ct), confirm: null,
+        MeasureCommand = new RelayCommand(_ => RunOnTargets(Loc.T("Vm.Op.Measure"), (p, pr, ct) => ProfileOperations.Measure(p, pr, ct), confirm: null,
                 parallel: MeasureParallel),
             _ => HasTargets && !IsWorking);
-        CleanCommand = new RelayCommand(_ => RunOnTargets(Settings.CompactAfterCleanup ? "Очищення + стиснення" : "Очищення",
+        CleanCommand = new RelayCommand(_ => RunOnTargets(Loc.T(Settings.CompactAfterCleanup ? "Vm.Op.CleanCompact" : "Vm.Op.Clean"),
                 (p, pr, ct) => ProfileOperations.Clean(p, _rules, Settings.CompactAfterCleanup, pr, ct),
-                confirm: "Буде видалено дані за правилами очищення{0}.\nКонтейнери, що використовуються, буде пропущено.\n\nПродовжити?", confirmVerb: "Очистити"),
+                confirm: Loc.T("Vm.Clean.Confirm"), confirmVerb: Loc.T("Vm.Clean.Verb")),
             _ => HasTargets && !IsWorking);
-        CompactCommand = new RelayCommand(_ => RunOnTargets("Стиснення", (p, pr, ct) => ProfileOperations.Compact(p, pr, ct),
-                confirm: "Стиснути {1} контейнер(и)? Під час операції користувач не зможе увійти.", confirmVerb: "Стиснути"),
+        CompactCommand = new RelayCommand(_ => RunOnTargets(Loc.T("Vm.Op.Compact"), (p, pr, ct) => ProfileOperations.Compact(p, pr, ct),
+                confirm: Loc.T("Vm.Compact.Confirm"), confirmVerb: Loc.T("Vm.Compact.Verb")),
             _ => HasTargets && !IsWorking);
         UnmountCommand = new RelayCommand(_ => UnmountAsync(), _ => Selected?.IsMounted == true && !IsWorking);
         GrowCommand = new RelayCommand(_ => GrowAsync(), _ => HasTargets && !IsWorking);
-        RepairFsCommand = new RelayCommand(_ => RunOnTargets("Перевірка ФС", (p, pr, ct) => ProfileOperations.RepairFs(p, pr, ct),
-                confirm: "Перевірити й виправити файлову систему{0} (аналог chkdsk /f)?\n\n" +
-                         "Диск буде підключено для запису — поки триває перевірка, користувач не зможе увійти. " +
-                         "Під час виправлення chkdsk може видалити записи, які неможливо відновити.",
-                confirmVerb: "Перевірити"),
+        RepairFsCommand = new RelayCommand(_ => RunOnTargets(Loc.T("Vm.Op.RepairFs"), (p, pr, ct) => ProfileOperations.RepairFs(p, pr, ct),
+                confirm: Loc.T("Vm.RepairFs.Confirm"), confirmVerb: Loc.T("Vm.RepairFs.Verb")),
             _ => HasTargets && !IsWorking);
         MessageCommand = new RelayCommand(_ => MessageAsync(), _ => !IsWorking && SessionTargets().Count > 0);
         LogoffCommand = new RelayCommand(_ => LogoffAsync(), _ => !IsWorking && SessionTargets().Count > 0);
@@ -114,14 +125,210 @@ public sealed class MainViewModel : ObservableObject
         DeleteCommand = new RelayCommand(_ => DeleteAsync(), _ => !IsWorking && Targets() is { Count: > 0 } t && t.All(p => p.CanDelete));
         OpenFolderCommand = new RelayCommand(_ => ProfileOperations.OpenInExplorer(Selected!), _ => Selected != null);
         EditRulesCommand = new RelayCommand(_ => EditRules());
-        ToggleSidebarCommand = new RelayCommand(_ => IsSidebarCollapsed = !IsSidebarCollapsed);
+        ShowPageCommand = new RelayCommand(p => IsSettingsPage = Equals(p, "settings"));
+        ToggleLogCommand = new RelayCommand(_ => IsLogOpen = !IsLogOpen);
+        ToggleThemeCommand = new RelayCommand(_ => ThemeManager.Toggle());
+        StepThresholdCommand = new RelayCommand(p => StepThreshold(p as string));
+        ResetThresholdsCommand = new RelayCommand(_ => ResetThresholds());
         ReloadRulesCommand = new RelayCommand(_ => LoadRules(true));
         OpenLogsCommand = new RelayCommand(_ => { Directory.CreateDirectory(Storage.LogDir); Process.Start("explorer.exe", Storage.LogDir); });
         CheckAllCommand = new RelayCommand(v => { foreach (var p in View.Cast<ProfileInfo>()) p.IsChecked = Equals(v, "1"); NotifyTargets(); });
-        SaveSettingsCommand = new RelayCommand(_ => { ApplyThresholds(); SaveSettings(); RefreshStats(); View.Refresh(); });
+        SaveSettingsCommand = new RelayCommand(_ => { CommitThresholds(); ApplyThresholds(); SaveSettings(); RefreshStats(); View.Refresh(); });
+        ClearCustomFilterCommand = new RelayCommand(_ => ResetCustomFilter());
+
+        SetIdleStatus();
+        _languages = BuildLanguages();
+        Loc.Changed += OnLanguageChanged;
+        ThemeManager.Changed += OnThemeChanged;
+        LoadThresholdDrafts();
 
         LoadRules(false);
     }
+
+    // ─────────────── UI language ───────────────
+
+    private IReadOnlyList<LangOption> _languages;
+    /// <summary>Language picker items: "System (…)" first, then every embedded translation.</summary>
+    public IReadOnlyList<LangOption> Languages => _languages;
+
+    /// <summary>Current choice (Code = null → follow Windows). Setting it switches the language and remembers it.</summary>
+    public LangOption SelectedLanguage
+    {
+        get => _languages.FirstOrDefault(l => string.Equals(l.Code, Loc.Preference, StringComparison.OrdinalIgnoreCase)) ?? _languages[0];
+        set
+        {
+            if (value == null || string.Equals(value.Code, Loc.Preference, StringComparison.OrdinalIgnoreCase)) return;
+            Loc.SetLanguage(value.Code);
+        }
+    }
+
+    private static IReadOnlyList<LangOption> BuildLanguages()
+    {
+        var sys = Loc.SystemLanguage;
+        var sysName = Loc.Available.FirstOrDefault(l => l.Code.Equals(sys, StringComparison.OrdinalIgnoreCase))?.NativeName ?? sys;
+        var list = new List<LangOption> { new(null, Loc.T("Lang.System", sysName)) };
+        list.AddRange(Loc.Available.Select(l => new LangOption(l.Code, l.NativeName)));
+        return list;
+    }
+
+    private void OnLanguageChanged()
+    {
+        // deferred: the change may come from inside the language combo box's SelectedItem setter
+        var d = Application.Current?.Dispatcher;
+        if (d == null) ApplyLanguage();
+        else d.BeginInvoke(ApplyLanguage);
+    }
+
+    private void ApplyLanguage()
+    {
+        foreach (var p in Profiles) p.OnLanguageChanged();
+        foreach (var e in Paths) e.Notify();
+        _customFilter.OnLanguageChanged();
+        _languages = BuildLanguages();
+        _themeOptions = null;
+        if (_statusIdle) SetIdleStatus();
+        RefreshAllBindings();
+        OnPropertyChanged(nameof(Languages));
+        OnPropertyChanged(nameof(SelectedLanguage));
+        OnPropertyChanged(nameof(ThemeOptions));
+        OnPropertyChanged(nameof(SelectedTheme));
+    }
+
+    /// <summary>Short code of the UI language for the header pill (UK, EN…).</summary>
+    public string LanguageCode => Loc.Lang.ToUpperInvariant();
+
+    // ─────────────── theme ───────────────
+
+    /// <summary>Theme picker: follow Windows / light / dark (names follow the UI language).</summary>
+    public IReadOnlyList<ThemeOption> ThemeOptions => _themeOptions ??= BuildThemeOptions();
+    private IReadOnlyList<ThemeOption>? _themeOptions;
+    private static IReadOnlyList<ThemeOption> BuildThemeOptions() => new[]
+    {
+        new ThemeOption(AppTheme.System, Loc.T("Theme.System")),
+        new ThemeOption(AppTheme.Light, Loc.T("Theme.Light")),
+        new ThemeOption(AppTheme.Dark, Loc.T("Theme.Dark")),
+    };
+
+    public ThemeOption SelectedTheme
+    {
+        get => ThemeOptions.First(o => o.Mode == ThemeManager.Preference);
+        set { if (value != null && value.Mode != ThemeManager.Preference) ThemeManager.Set(value.Mode); }
+    }
+
+    public bool IsDark => ThemeManager.IsDark;
+
+    /// <summary>Colours come from converters in a few places (bars, chips, avatars): make those bindings re-read them.</summary>
+    private void OnThemeChanged()
+    {
+        foreach (var p in Profiles) p.OnThemeChanged();
+        foreach (var e in Paths) e.Notify();
+        OnPropertyChanged(nameof(IsDark));
+        OnPropertyChanged(nameof(SelectedTheme));
+    }
+
+    // ─────────────── pages, log ───────────────
+
+    private bool _isSettingsPage;
+    /// <summary>Header tabs: false = «Контейнери», true = «Налаштування».</summary>
+    public bool IsSettingsPage
+    {
+        get => _isSettingsPage;
+        set
+        {
+            if (!Set(ref _isSettingsPage, value)) return;
+            OnPropertyChanged(nameof(IsContainersPage));
+            if (value) LoadThresholdDrafts();
+        }
+    }
+    public bool IsContainersPage => !_isSettingsPage;
+
+    private bool _isLogOpen;
+    /// <summary>Log panel above the status bar (button «Журнал»); opening it resets the warning badge.</summary>
+    public bool IsLogOpen
+    {
+        get => _isLogOpen;
+        set { if (Set(ref _isLogOpen, value) && value) LogAlertCount = 0; }
+    }
+
+    private int _logAlertCount;
+    public int LogAlertCount { get => _logAlertCount; private set => Set(ref _logAlertCount, value); }
+
+    // ─────────────── thresholds (Settings page): edited as a draft, applied by «Застосувати й зберегти» ───────────────
+
+    private double _draftWarn, _draftCrit, _draftCompactMin;
+    private int _draftStale;
+    public double DraftWarn { get => _draftWarn; set { if (Set(ref _draftWarn, value)) OnPropertyChanged(nameof(ThresholdsDirty)); } }
+    public double DraftCrit { get => _draftCrit; set { if (Set(ref _draftCrit, value)) OnPropertyChanged(nameof(ThresholdsDirty)); } }
+    public int DraftStale { get => _draftStale; set { if (Set(ref _draftStale, value)) OnPropertyChanged(nameof(ThresholdsDirty)); } }
+    public double DraftCompactMin { get => _draftCompactMin; set { if (Set(ref _draftCompactMin, value)) OnPropertyChanged(nameof(ThresholdsDirty)); } }
+
+    /// <summary>The draft differs from the saved thresholds.</summary>
+    public bool ThresholdsDirty =>
+        DraftWarn != Settings.WarnPercent || DraftCrit != Settings.CriticalPercent ||
+        DraftStale != Settings.StaleDays || DraftCompactMin != Settings.CompactMinGb;
+
+    private void LoadThresholdDrafts()
+    {
+        DraftWarn = Settings.WarnPercent;
+        DraftCrit = Settings.CriticalPercent;
+        DraftStale = Settings.StaleDays;
+        DraftCompactMin = Settings.CompactMinGb;
+        OnPropertyChanged(nameof(ThresholdsDirty));
+    }
+
+    /// <summary>Copies the draft into the settings, clamped to sensible ranges (1–100 %, ≥ 1 day, ≥ 0 GB).</summary>
+    private void CommitThresholds()
+    {
+        Settings.WarnPercent = Math.Clamp(DraftWarn, 1, 100);
+        Settings.CriticalPercent = Math.Clamp(DraftCrit, 1, 100);
+        Settings.StaleDays = Math.Max(1, DraftStale);
+        Settings.CompactMinGb = Math.Max(0, DraftCompactMin);
+        LoadThresholdDrafts();
+    }
+
+    /// <summary>− / + next to a threshold: "warn:-1", "crit:+1", "stale:+1" (10 days), "compact:-1".</summary>
+    private void StepThreshold(string? arg)
+    {
+        var parts = (arg ?? "").Split(':');
+        if (parts.Length != 2 || !int.TryParse(parts[1], out var d)) return;
+        switch (parts[0])
+        {
+            case "warn": DraftWarn = Math.Clamp(Math.Round(DraftWarn) + d, 1, 100); break;
+            case "crit": DraftCrit = Math.Clamp(Math.Round(DraftCrit) + d, 1, 100); break;
+            case "stale": DraftStale = Math.Max(1, DraftStale + d * 10); break;
+            case "compact": DraftCompactMin = Math.Max(0, Math.Round(DraftCompactMin) + d); break;
+        }
+    }
+
+    /// <summary>«Повернути рекомендовані»: the defaults of a fresh settings.json (not saved until «Застосувати»).</summary>
+    private void ResetThresholds()
+    {
+        var d = new AppSettings();
+        DraftWarn = d.WarnPercent;
+        DraftCrit = d.CriticalPercent;
+        DraftStale = d.StaleDays;
+        DraftCompactMin = d.CompactMinGb;
+    }
+
+    // ─────────────── header / cards text ───────────────
+
+    private DateTime? _lastScanAt;
+    /// <summary>Line under the page title: "412 контейнерів · 3,8 TB · сканування о 09:42".</summary>
+    public string HeroSummary => TotalCount == 0 ? Loc.T("Main.Hero.Empty")
+        : Loc.T("Main.Hero.Summary", TotalCount, TotalSize) +
+          (_lastScanAt is DateTime t ? Loc.T("Main.Hero.ScannedAt", t) : "");
+
+    /// <summary>Header of the actions card: what the actions apply to.</summary>
+    public string ActionsTarget => CheckedCount > 0 ? Loc.T("Main.Actions.ForChecked", CheckedCount) : Loc.T("Main.Actions.ForSelected");
+
+    /// <summary>Rules card: enabled rules (names in the UI language), the first few as chips.</summary>
+    public int RulesOn => _rulesOn;
+    public int RulesTotal => _rulesTotal;
+    /// <summary>The rules file could not be read (<see cref="RulesSummary"/> holds the message).</summary>
+    public bool RulesError => _rulesError;
+    public int GlobalExcludeCount => _rules.GlobalExclude.Count;
+    public IReadOnlyList<string> RuleChips => _rules.Rules.Where(r => r.Enabled).Select(r => r.DisplayName).Take(6).ToList();
+    public string RulesMore => _rulesOn > 6 ? Loc.T("Settings.Rules.More", _rulesOn - 6) : "";
 
     // ─────────────── commands ───────────────
     public RelayCommand AddPathCommand { get; }
@@ -133,6 +340,7 @@ public sealed class MainViewModel : ObservableObject
     public RelayCommand RefreshOneCommand { get; }
     public RelayCommand CancelCommand { get; }
     public RelayCommand SetFilterCommand { get; }
+    public RelayCommand ClearCustomFilterCommand { get; }
     public RelayCommand AnalyzeCommand { get; }
     public RelayCommand MeasureCommand { get; }
 
@@ -163,39 +371,36 @@ public sealed class MainViewModel : ObservableObject
         var ext = System.IO.Path.GetExtension(f.Name).ToLowerInvariant();
         var note = ext switch
         {
-            ".ost" => "Це кеш поштової скриньки Outlook: Outlook створить його заново й завантажить пошту з сервера (це може тривати довго й навантажити мережу).\n",
-            ".pst" => "Увага: PST — це локальний архів пошти, його вміст може бути ЛИШЕ в цьому файлі.\n",
+            ".ost" => Loc.T("Vm.DeleteFile.NoteOst"),
+            ".pst" => Loc.T("Vm.DeleteFile.NotePst"),
             _ => "",
         };
-        var msg = $"Видалити файл з контейнера {p.DisplayUser}?\n\n" +
-                  $"  {rel}\n  {f.SizeText}, змінено {f.ModifiedText} (за даними аналізу {p.AnalyzedText})\n\n" + note +
-                  "Контейнер буде підключено для запису — поки триває операція, користувач не зможе увійти.\n" +
-                  (Settings.CompactAfterCleanup ? "Після видалення VHDX буде стиснуто.\n" : "Стиснення вимкнено — файл VHDX не зменшиться, доки не натиснете «Стиснути».\n") +
-                  "Видалені дані відновити неможливо.";
-        if (!Dialog.Confirm("Видалення файлу", msg, "Видалити файл", kind: DialogKind.Danger)) return;
+        var msg = Loc.T("Vm.DeleteFile.Confirm", p.DisplayUser, rel, f.SizeText, f.ModifiedText, p.AnalyzedText, note, CompactNote());
+        var title = Loc.T("Vm.DeleteFile.Title");
+        if (!Dialog.Confirm(title, msg, Loc.T("Vm.DeleteFile.Verb"), kind: DialogKind.Danger)) return;
 
-        await RunOnTargets("Видалення файлу",
+        await RunOnTargets(title,
             (pp, r, ct) => ProfileOperations.DeleteFileIn(pp, rel, _rules, Settings.CompactAfterCleanup, r, ct),
             confirm: null, explicitTargets: new[] { p });
-        if (p.LastResult?.StartsWith("Помилка") == true) Dialog.Error("Видалення файлу", p.LastResult);
+        if (p.LastResultIsError && p.LastResult != null) Dialog.Error(title, p.LastResult);
     }
+
+    /// <summary>Line of the delete confirmations: whether the VHDX will be compacted afterwards.</summary>
+    private string CompactNote() => Loc.T(Settings.CompactAfterCleanup ? "Vm.Delete.CompactOn" : "Vm.Delete.CompactOff");
 
     private async Task DeleteFolderAsync(FolderUsage u)
     {
         var p = Selected;
         if (p == null || u.Node == null || !u.CanDelete) return;
         var rel = u.Node.Path;
-        var msg = $"Видалити папку з контейнера {p.DisplayUser}?\n\n" +
-                  $"  {rel}\n  {u.SizeText} (за даними аналізу {p.AnalyzedText})\n\n" +
-                  "Контейнер буде підключено для запису — поки триває операція, користувач не зможе увійти.\n" +
-                  (Settings.CompactAfterCleanup ? "Після видалення VHDX буде стиснуто.\n" : "Стиснення вимкнено — файл VHDX не зменшиться, доки не натиснете «Стиснути».\n") +
-                  "Видалені дані відновити неможливо.";
-        if (!Dialog.Confirm("Видалення папки", msg, "Видалити папку", kind: DialogKind.Danger)) return;
+        var msg = Loc.T("Vm.DeleteFolder.Confirm", p.DisplayUser, rel, u.SizeText, p.AnalyzedText, CompactNote());
+        var title = Loc.T("Vm.DeleteFolder.Title");
+        if (!Dialog.Confirm(title, msg, Loc.T("Vm.DeleteFolder.Verb"), kind: DialogKind.Danger)) return;
 
-        await RunOnTargets("Видалення папки",
+        await RunOnTargets(title,
             (pp, r, ct) => ProfileOperations.DeleteFolder(pp, rel, _rules, Settings.CompactAfterCleanup, r, ct),
             confirm: null, explicitTargets: new[] { p });
-        if (p.LastResult?.StartsWith("Помилка") == true) Dialog.Error("Видалення папки", p.LastResult);
+        if (p.LastResultIsError && p.LastResult != null) Dialog.Error(title, p.LastResult);
     }
 
     /// <summary>
@@ -205,21 +410,20 @@ public sealed class MainViewModel : ObservableObject
     public bool ShowDelete => Targets().Any(p => p.IsDeletable);
     /// <summary>Shown but disabled — explain why under the button.</summary>
     public bool DeleteBlocked => ShowDelete && !Targets().All(p => p.CanDelete);
-    public string DeleteLabel => Targets() is { Count: > 1 } t ? $"Видалити профілі ({t.Count})" : "Видалити профіль";
+    public string DeleteLabel => Targets() is { Count: > 1 } t ? Loc.T("Vm.Delete.LabelMany", t.Count) : Loc.T("Vm.Delete.LabelOne");
     public string DeleteHint
     {
         get
         {
             var t = Targets();
             int bad = t.Count(p => !p.CanDelete);
-            if (bad == 0) return "Остаточно видалити контейнер разом із папкою користувача";
+            if (bad == 0) return Loc.T("Vm.Delete.Hint.Ok");
             if (t.Count == 1)
-                return t[0].IsMounted ? "Контейнер зараз використовується" : t[0].IsBusy ? "З контейнером зараз виконується операція" : "";
+                return t[0].IsMounted ? Loc.T("Vm.Delete.Hint.InUse") : t[0].IsBusy ? Loc.T("Vm.Delete.Hint.Busy") : "";
             int notEligible = t.Count(p => !p.IsDeletable), inUse = t.Count(p => p.IsDeletable && (p.IsMounted || p.IsBusy));
-            return $"Кнопка активна, лише якщо всі позначені можна видалити (неактивні або вимкнені в AD, і не використовуються): " +
-                   $"не відповідають {bad} з {t.Count}" +
-                   (notEligible > 0 ? $" — активні облікові записи, що змінювались нещодавно: {notEligible}" : "") +
-                   (inUse > 0 ? $"{(notEligible > 0 ? "," : " —")} зараз використовуються: {inUse}" : "");
+            return Loc.T("Vm.Delete.Hint.NotAll", bad, t.Count) +
+                   (notEligible > 0 ? Loc.T("Vm.Delete.Hint.Active", notEligible) : "") +
+                   (inUse > 0 ? Loc.T(notEligible > 0 ? "Vm.Delete.Hint.InUseNext" : "Vm.Delete.Hint.InUseFirst", inUse) : "");
         }
     }
 
@@ -227,6 +431,7 @@ public sealed class MainViewModel : ObservableObject
     private void NotifyTargets()
     {
         OnPropertyChanged(nameof(CheckedCount));
+        OnPropertyChanged(nameof(ActionsTarget));
         OnPropertyChanged(nameof(ShowDelete));
         OnPropertyChanged(nameof(DeleteBlocked));
         OnPropertyChanged(nameof(DeleteLabel));
@@ -234,7 +439,11 @@ public sealed class MainViewModel : ObservableObject
     }
     public RelayCommand OpenFolderCommand { get; }
     public RelayCommand EditRulesCommand { get; }
-    public RelayCommand ToggleSidebarCommand { get; }
+    public RelayCommand ShowPageCommand { get; }
+    public RelayCommand ToggleLogCommand { get; }
+    public RelayCommand ToggleThemeCommand { get; }
+    public RelayCommand StepThresholdCommand { get; }
+    public RelayCommand ResetThresholdsCommand { get; }
     public RelayCommand ReloadRulesCommand { get; }
     public RelayCommand OpenLogsCommand { get; }
     public RelayCommand CheckAllCommand { get; }
@@ -245,19 +454,6 @@ public sealed class MainViewModel : ObservableObject
     public ProfileInfo? Selected { get => _selected; set { if (Set(ref _selected, value)) { OnPropertyChanged(nameof(HasSelection)); NotifyTargets(); } } }
     public bool HasSelection => Selected != null;
 
-    /// <summary>Left panel collapsed to a narrow strip; remembered in settings.json.</summary>
-    public bool IsSidebarCollapsed
-    {
-        get => Settings.SidebarCollapsed;
-        set
-        {
-            if (Settings.SidebarCollapsed == value) return;
-            Settings.SidebarCollapsed = value;
-            OnPropertyChanged();
-            SaveSettings();
-        }
-    }
-
     private bool _isScanning;
     public bool IsScanning { get => _isScanning; set { if (Set(ref _isScanning, value)) OnPropertyChanged(nameof(IsIdle)); } }
 
@@ -265,8 +461,16 @@ public sealed class MainViewModel : ObservableObject
     public bool IsWorking { get => _isWorking; set { if (Set(ref _isWorking, value)) OnPropertyChanged(nameof(IsIdle)); } }
     public bool IsIdle => !IsScanning && !IsWorking;
 
-    private string _status = "Готово";
-    public string Status { get => _status; set => Set(ref _status, value); }
+    private string _status = "";
+    /// <summary>The status line shows the idle "ready" text (re-translated when the language changes).</summary>
+    private bool _statusIdle;
+    public string Status { get => _status; set { _statusIdle = false; Set(ref _status, value); } }
+
+    private void SetIdleStatus()
+    {
+        Status = Loc.T("Vm.Status.Ready");
+        _statusIdle = true;
+    }
 
     private double _progress;
     public double Progress { get => _progress; set => Set(ref _progress, value); }
@@ -290,13 +494,13 @@ public sealed class MainViewModel : ObservableObject
     public bool IsFiltered => Filter != ProfileFilter.All;
     public string FilterLabel => Filter switch
     {
-        ProfileFilter.Problem => "Переповнені та близькі до межі",
-        ProfileFilter.Mounted => "Підмонтовані",
-        ProfileFilter.Orphan => "Сироти",
-        ProfileFilter.Disabled => "Вимкнені або прострочені облікові записи",
-        ProfileFilter.Stale => "Неактивні",
-        ProfileFilter.Compactable => $"Варто стиснути (≥ {Settings.CompactMinGb:0.#} GB)",
-        ProfileFilter.Unmeasured => "Ще не виміряні (вільні) — позначте й натисніть «Виміряти»",
+        ProfileFilter.Problem => Loc.T("Vm.Filter.Problem"),
+        ProfileFilter.Mounted => Loc.T("Vm.Filter.Mounted"),
+        ProfileFilter.Orphan => Loc.T("Vm.Filter.Orphan"),
+        ProfileFilter.Disabled => Loc.T("Vm.Filter.Disabled"),
+        ProfileFilter.Stale => Loc.T("Vm.Filter.Stale"),
+        ProfileFilter.Compactable => Loc.T("Vm.Filter.Compactable", Settings.CompactMinGb),
+        ProfileFilter.Unmeasured => Loc.T("Vm.Filter.Unmeasured"),
         _ => "",
     };
     public int VisibleCount => View.Cast<object>().Count();
@@ -304,8 +508,11 @@ public sealed class MainViewModel : ObservableObject
     private string _search = "";
     public string Search { get => _search; set { if (Set(ref _search, value)) { View.Refresh(); OnPropertyChanged(nameof(VisibleCount)); } } }
 
-    public string RulesSummary { get => _rulesSummary; private set => Set(ref _rulesSummary, value); }
-    private string _rulesSummary = "";
+    /// <summary>"N з M правил активні" or the rules-file error; computed on access so it follows the UI language.</summary>
+    public string RulesSummary => _rulesError ? Loc.T("Vm.Rules.ErrorSummary")
+        : _rulesLoaded ? Loc.T("Vm.Rules.Summary", _rulesOn, _rulesTotal) : "";
+    private bool _rulesLoaded, _rulesError;
+    private int _rulesOn, _rulesTotal;
 
     public int TotalCount => Profiles.Count;
     public string TotalSize => Format.Bytes(Profiles.Sum(p => p.FileSize));
@@ -325,12 +532,11 @@ public sealed class MainViewModel : ObservableObject
     /// <summary>No exact usage yet and free right now (an in-use container cannot be measured).</summary>
     private static bool IsUnmeasured(ProfileInfo p) => !p.UsageIsExact && !p.IsMounted;
     public string CompactableHint => UnmeasuredCount == 0
-        ? $"≈ {CompactableSize} повернеться"
-        : $"≈ {CompactableSize} · не виміряно {UnmeasuredCount}";
+        ? Loc.T("Vm.Compactable.Hint", CompactableSize)
+        : Loc.T("Vm.Compactable.HintUnmeasured", CompactableSize, UnmeasuredCount);
     public string CompactableTip => UnmeasuredCount == 0
-        ? "Проаналізовані контейнери, які стиснення зменшить щонайменше на поріг із налаштувань"
-        : $"Враховано лише виміряні контейнери. Ще не виміряно: {UnmeasuredCount}.\n" +
-          "Щоб їх виміряти: клік по картці → «Ще не виміряні» → «Позначити видимі» → «Виміряти» (кілька секунд на контейнер, лише читання).";
+        ? Loc.T("Vm.Compactable.Tip")
+        : Loc.T("Vm.Compactable.TipUnmeasured", UnmeasuredCount);
 
     /// <summary>Link in the filter bar: from "worth compacting" to the containers that still have to be measured.</summary>
     public bool ShowUnmeasuredLink => Filter == ProfileFilter.Compactable && UnmeasuredCount > 0;
@@ -357,7 +563,92 @@ public sealed class MainViewModel : ObservableObject
             ProfileFilter.Compactable => p.WorthCompacting,
             ProfileFilter.Unmeasured => IsUnmeasured(p),
             _ => true,
-        };
+        } && _customFilter.Matches(p);
+    }
+
+    // ─────────────── custom filter (button «Фільтр» next to the search box) ───────────────
+
+    private readonly System.Windows.Threading.DispatcherTimer _customFilterTimer;
+    private FilterGroup _customFilter;
+    /// <summary>Condition tree edited in the filter window; combined (І) with the search and the stat-card filter.</summary>
+    public FilterGroup CustomFilter
+    {
+        get => _customFilter;
+        private set
+        {
+            _customFilter.Changed -= OnCustomFilterChanged;
+            _customFilter = value;
+            _customFilter.Changed += OnCustomFilterChanged;
+            OnPropertyChanged();
+            ApplyCustomFilter();
+        }
+    }
+
+    public bool IsCustomFilterActive => _customFilter.IsActive;
+    public int CustomFilterCount => _customFilter.ActiveConditionCount();
+    /// <summary>Readable expression, e.g. «Заповнення, % ≥ 80 І (Стан підключення дорівнює У сесії АБО Сирота)».</summary>
+    public string CustomFilterText => _customFilter.IsActive
+        ? (CurrentSavedName != null ? Loc.T("Vm.CustomFilter.Named", CurrentSavedName, _customFilter.Describe()) : _customFilter.Describe())
+        : Loc.T("Vm.CustomFilter.None");
+
+    /// <summary>Name of the saved filter that was loaded / saved last (null = unnamed).</summary>
+    public string? CurrentSavedName { get => _currentSavedName; private set { if (Set(ref _currentSavedName, value)) OnPropertyChanged(nameof(CustomFilterText)); } }
+    private string? _currentSavedName;
+
+    public ObservableCollection<string> SavedFilterNames { get; } = new();
+
+    // typing in a value box changes the tree on every key stroke — re-filter once it settles
+    private void OnCustomFilterChanged() { _customFilterTimer.Stop(); _customFilterTimer.Start(); }
+
+    private void ApplyCustomFilter()
+    {
+        View.Refresh();
+        OnPropertyChanged(nameof(VisibleCount));
+        OnPropertyChanged(nameof(IsCustomFilterActive));
+        OnPropertyChanged(nameof(CustomFilterCount));
+        OnPropertyChanged(nameof(CustomFilterText));
+    }
+
+    public void ResetCustomFilter()
+    {
+        CurrentSavedName = null;
+        CustomFilter = new FilterGroup();
+    }
+
+    private void ReloadSavedFilterNames(Dictionary<string, FilterGroup>? d = null)
+    {
+        d ??= Storage.LoadFilters();
+        var names = d.Keys.OrderBy(k => k, StringComparer.CurrentCultureIgnoreCase).ToList();
+        if (names.SequenceEqual(SavedFilterNames)) return;   // keep the combo box selection
+        SavedFilterNames.Clear();
+        foreach (var n in names) SavedFilterNames.Add(n);
+    }
+
+    /// <summary>Loads a named filter (re-read from disk: another admin may have changed it).</summary>
+    public void LoadSavedFilter(string name)
+    {
+        var d = Storage.LoadFilters();
+        ReloadSavedFilterNames(d);
+        if (!d.TryGetValue(name, out var g)) { Log.Warn(Loc.T("Vm.Filter.NotFound", name)); return; }
+        CurrentSavedName = d.Keys.First(k => k.Equals(name, StringComparison.OrdinalIgnoreCase));
+        CustomFilter = g;
+    }
+
+    public void SaveCustomFilter(string name)
+    {
+        var copy = _customFilter.Clone();
+        var d = Storage.UpdateFilters(x => { x.Remove(name); x[name] = copy; });
+        ReloadSavedFilterNames(d);
+        CurrentSavedName = name;
+        Log.Info(Loc.T("Vm.Filter.Saved", name, copy.Describe()));
+    }
+
+    public void DeleteSavedFilter(string name)
+    {
+        var d = Storage.UpdateFilters(x => x.Remove(name));
+        ReloadSavedFilterNames(d);
+        if (string.Equals(CurrentSavedName, name, StringComparison.OrdinalIgnoreCase)) CurrentSavedName = null;
+        Log.Info(Loc.T("Vm.Filter.Deleted", name));
     }
 
     private void ApplyThresholds()
@@ -375,12 +666,12 @@ public sealed class MainViewModel : ObservableObject
     {
         Settings.ProfilePaths = Paths.Select(x => x.Path).ToList();
         try { Storage.SaveSettings(Settings); }
-        catch (Exception ex) { Log.Error("Не вдалося зберегти налаштування: " + ex.Message); }
+        catch (Exception ex) { Log.Error(Loc.T("Vm.Settings.SaveFailed", ex.Message)); }
     }
 
     private void AddPath()
     {
-        var dlg = new OpenFolderDialog { Title = "Папка з FSLogix-контейнерами", Multiselect = true };
+        var dlg = new OpenFolderDialog { Title = Loc.T("Vm.AddPath.Title"), Multiselect = true };
         if (dlg.ShowDialog() != true) return;
         foreach (var f in dlg.FolderNames)
             if (!HasPath(f)) Paths.Add(new PathEntry(f));
@@ -413,15 +704,26 @@ public sealed class MainViewModel : ObservableObject
         try
         {
             _rules = Storage.LoadRules(Settings);
-            var on = _rules.Rules.Count(r => r.Enabled);
-            RulesSummary = $"{on} з {_rules.Rules.Count} правил активні";
-            if (verbose) Log.Info($"Правила перечитано: {Storage.RulesPath(Settings)} ({RulesSummary})");
+            _rulesOn = _rules.Rules.Count(r => r.Enabled);
+            _rulesTotal = _rules.Rules.Count;
+            _rulesLoaded = true;
+            _rulesError = false;
+            OnPropertyChanged(nameof(RulesSummary));
+            OnPropertyChanged(nameof(RulesOn));
+            OnPropertyChanged(nameof(RulesTotal));
+            OnPropertyChanged(nameof(RulesError));
+            OnPropertyChanged(nameof(GlobalExcludeCount));
+            OnPropertyChanged(nameof(RuleChips));
+            OnPropertyChanged(nameof(RulesMore));
+            if (verbose) Log.Info(Loc.T("Vm.Rules.Reloaded", Storage.RulesPath(Settings), RulesSummary));
         }
         catch (Exception ex)
         {
-            RulesSummary = "Помилка у файлі правил!";
-            Log.Error("Файл правил: " + ex.Message);
-            if (verbose) Dialog.Error("Помилка у файлі правил", ex.Message);
+            _rulesError = true;
+            OnPropertyChanged(nameof(RulesSummary));
+            OnPropertyChanged(nameof(RulesError));
+            Log.Error(Loc.T("Vm.Rules.ErrorLog", ex.Message));
+            if (verbose) Dialog.Error(Loc.T("Vm.Rules.ErrorTitle"), ex.Message);
         }
     }
 
@@ -444,17 +746,17 @@ public sealed class MainViewModel : ObservableObject
             var total = Stopwatch.StartNew();
             var phase = Stopwatch.StartNew();
             var timings = new List<string>();
-            void Mark(string name) { timings.Add($"{name} {phase.Elapsed.TotalSeconds:0.0} с"); phase.Restart(); }
+            void Mark(string key) { timings.Add(Loc.T("Vm.Scan.Timing", Loc.T(key), phase.Elapsed.TotalSeconds)); phase.Restart(); }
 
             // 1. directory listing only — the list is on screen after this
-            Status = "Пошук контейнерів…";
+            Status = Loc.T("Vm.Scan.Searching");
             var roots = Paths.Select(x => x.Path).ToList();
             var list = await Task.Run(() => ProfileScanner.Discover(roots, _sizeCache, ct), ct);
-            Mark("перелік файлів");
+            Mark("Vm.Scan.Phase.Listing");
             _analysisCache ??= await Task.Run(Storage.LoadAnalysisCache, ct);
             _history ??= await Task.Run(Storage.LoadHistory, ct);
             ProfileStore.Attach(list, _history);   // growth column is filled right away; today's point is added at the end
-            Mark("кеші");
+            Mark("Vm.Scan.Phase.Caches");
 
             // keep analysis results / last known state of profiles we already know
             var old = Profiles.ToDictionary(p => p.FilePath, StringComparer.OrdinalIgnoreCase);
@@ -463,7 +765,8 @@ public sealed class MainViewModel : ObservableObject
                 if (old.TryGetValue(p.FilePath, out var o))
                 {
                     if (o.FileSize == p.FileSize) { p.VolumeTotal = o.VolumeTotal; p.VolumeUsed = o.VolumeUsed; p.AnalyzedAt = o.AnalyzedAt; p.FsDirty = o.FsDirty; }
-                    p.SetFolderTree(o.FolderTree); p.Estimates = o.Estimates; p.TopFiles = o.TopFiles; p.LastResult = o.LastResult;
+                    p.SetFolderTree(o.FolderTree); p.Estimates = o.Estimates; p.TopFiles = o.TopFiles;
+                    if (o.LastResultIsError && o.LastResult != null) p.SetError(o.LastResult); else p.LastResult = o.LastResult;
                     p.AccountName = o.AccountName; p.IsOrphan = o.IsOrphan;
                     p.SetHandles(o.Handles); p.State = o.State;
                 }
@@ -479,7 +782,7 @@ public sealed class MainViewModel : ObservableObject
             Profiles.ReplaceAll(list);
             Selected = Profiles.FirstOrDefault(p => p.FilePath.Equals(selectedPath, StringComparison.OrdinalIgnoreCase));
             RefreshStats();
-            Mark("відображення");
+            Mark("Vm.Scan.Phase.Display");
 
             // 2–5 are independent of each other and mostly WAIT (disk, SMB/WMI, DNS, domain controller),
             // so they run at the same time: the scan takes as long as the slowest one, not the sum.
@@ -487,14 +790,17 @@ public sealed class MainViewModel : ObservableObject
             //   2. max sizes from VHDX headers (cached per file — on rescans only new containers are read)
             //   3. who has what mounted (SMB open files + lock probe)
             //   4–5. SID → account (one batched lookup), then disabled / expired / last logon in AD (LDAP)
-            Status = "Заголовки VHDX, стан підключень, облікові записи…";
-            var pending = new List<string> { "заголовки", "стан підключень", "облікові записи", "AD" };
+            Status = Loc.T("Vm.Scan.Parallel");
+            // string keys, translated only for display (the language may change while the scan runs)
+            const string kHeaders = "Vm.Scan.Pending.Headers", kStates = "Vm.Scan.Pending.States",
+                         kAccounts = "Vm.Scan.Pending.Accounts", kAd = "Vm.Scan.Pending.Ad";
+            var pending = new List<string> { kHeaders, kStates, kAccounts, kAd };
             void Done(string what)
             {
                 pending.Remove(what);
                 RefreshStats();
                 View.Refresh();
-                if (pending.Count > 0) Status = "Ще триває: " + string.Join(", ", pending) + "…";
+                if (pending.Count > 0) Status = Loc.T("Vm.Scan.StillRunning", string.Join(", ", pending.Select(k => Loc.T(k))));
             }
             async Task<double> Timed(Func<Task> work)
             {
@@ -508,44 +814,45 @@ public sealed class MainViewModel : ObservableObject
             {
                 read = await Task.Run(() => ProfileScanner.ReadHeaders(list, _sizeCache, null, ct), ct);
                 Storage.SaveSizeCache(_sizeCache);
-                Done("заголовки");
+                Done(kHeaders);
             });
             var tStates = Timed(async () =>
             {
                 await Task.Run(() => ProfileScanner.UpdateStates(list, ct), ct);
-                Done("стан підключень");
+                Done(kStates);
             });
             double adSeconds = 0;
             var tAccounts = Timed(async () =>
             {
                 await Task.Run(() => ProfileScanner.ResolveAccounts(list, ct), ct);
-                Done("облікові записи");
+                Done(kAccounts);
                 var sw = Stopwatch.StartNew();
                 await Task.Run(() => AdService.Resolve(list, ct), ct);
                 adSeconds = sw.Elapsed.TotalSeconds;
-                Done("AD");
+                Done(kAd);
             });
             var secs = await Task.WhenAll(tHeaders, tStates, tAccounts);
-            timings.Add($"паралельно {phase.Elapsed.TotalSeconds:0.0} с [заголовки ({read} нових) {secs[0]:0.0} с, " +
-                        $"стан підключень {secs[1]:0.0} с, облікові записи {secs[2] - adSeconds:0.0} с, стан в AD {adSeconds:0.0} с]");
+            timings.Add(Loc.T("Vm.Scan.ParallelTiming", phase.Elapsed.TotalSeconds, read, secs[0], secs[1], secs[2] - adSeconds, adSeconds));
             phase.Restart();
 
             // 6. today's size → history (growth, forecast)
-            Status = "Запис історії розмірів…";
+            Status = Loc.T("Vm.Scan.History");
             _history = await Task.Run(() => ProfileStore.RecordHistory(list), ct);
             View.Refresh();
-            Mark("історія");
+            Mark("Vm.Scan.Phase.History");
 
             var stamp = DateTime.Now;
             foreach (var p in list) p.RefreshedAt = stamp;
             await PruneAnalysisCacheAsync(roots, list);
             _ = RefreshStorageAsync();
-            Status = $"Знайдено {list.Count} контейнерів за {total.Elapsed.TotalSeconds:0.0} с · {DateTime.Now:HH:mm:ss}";
-            Log.Info($"Сканування: {list.Count} контейнерів, {TotalSize}, переповнених {CriticalCount}, підмонтованих {MountedCount}");
-            Log.Info($"  час: {string.Join(", ", timings)}; усього {total.Elapsed.TotalSeconds:0.0} с");
+            Status = Loc.T("Vm.Scan.Done", list.Count, total.Elapsed.TotalSeconds, DateTime.Now);
+            _lastScanAt = DateTime.Now;
+            OnPropertyChanged(nameof(HeroSummary));
+            Log.Info(Loc.T("Vm.Scan.Log", list.Count, TotalSize, CriticalCount, MountedCount));
+            Log.Info(Loc.T("Vm.Scan.LogTiming", string.Join(", ", timings), total.Elapsed.TotalSeconds));
         }
-        catch (OperationCanceledException) { Status = "Скасовано"; }
-        catch (Exception ex) { Status = "Помилка сканування"; Log.Error("Сканування: " + ex.Message); }
+        catch (OperationCanceledException) { Status = Loc.T("Vm.Status.Cancelled"); }
+        catch (Exception ex) { Status = Loc.T("Vm.Scan.Error"); Log.Error(Loc.T("Vm.Scan.ErrorLog", ex.Message)); }
         finally
         {
             IsScanning = false;
@@ -562,33 +869,33 @@ public sealed class MainViewModel : ObservableObject
         var ct = _cts.Token;
         var sw = Stopwatch.StartNew();
         bool single = list.Count == 1;
-        foreach (var p in list) if (!p.IsBusy) p.Busy = "Оновлення…";
+        foreach (var p in list) if (!p.IsBusy) p.BeginRefreshBusy();
         try
         {
-            Status = $"Оновлення: {what}…";
+            Status = Loc.T("Vm.Refresh.Status", what);
             await Task.Run(() => ProfileScanner.RefreshInfo(list.ToList(), _sizeCache,
-                s => Status = $"Оновлення: {what} — {s}", ct), ct);
+                s => Status = Loc.T("Vm.Refresh.Progress", what, s), ct), ct);
             Storage.SaveSizeCache(_sizeCache);
             _history = await Task.Run(() => ProfileStore.RecordHistory(list.Where(p => !p.IsDeleted).ToList()), ct);
 
             var gone = list.Where(p => p.IsDeleted).ToList();
             if (gone.Count > 0)
             {
-                foreach (var p in gone) Log.Warn($"Контейнер зник з диска: {p.FilePath}");
+                foreach (var p in gone) Log.Warn(Loc.T("Vm.Refresh.Gone", p.FilePath));
                 if (Selected is { IsDeleted: true }) Selected = null;
                 Profiles.ReplaceAll(Profiles.Where(p => !p.IsDeleted).ToList());
             }
             RefreshStats();
             View.Refresh();
-            Status = (single ? $"{list[0].DisplayUser}: інформацію оновлено" : $"Оновлено {list.Count - gone.Count} контейнерів") +
-                     (gone.Count > 0 ? $", зникли з диска: {gone.Count}" : "") +
-                     $" за {sw.Elapsed.TotalSeconds:0.0} с · {DateTime.Now:HH:mm:ss}";
+            Status = (single ? Loc.T("Vm.Refresh.DoneOne", list[0].DisplayUser) : Loc.T("Vm.Refresh.DoneMany", list.Count - gone.Count)) +
+                     (gone.Count > 0 ? Loc.T("Vm.Refresh.GoneSuffix", gone.Count) : "") +
+                     Loc.T("Vm.Refresh.TimeSuffix", sw.Elapsed.TotalSeconds, DateTime.Now);
         }
-        catch (OperationCanceledException) { Status = "Оновлення скасовано"; }
-        catch (Exception ex) { Status = "Помилка оновлення"; Log.Error("Оновлення: " + ex.Message); }
+        catch (OperationCanceledException) { Status = Loc.T("Vm.Refresh.Cancelled"); }
+        catch (Exception ex) { Status = Loc.T("Vm.Refresh.Error"); Log.Error(Loc.T("Vm.Refresh.ErrorLog", ex.Message)); }
         finally
         {
-            foreach (var p in list) if (p.Busy == "Оновлення…") p.Busy = null;
+            foreach (var p in list) p.EndRefreshBusy();
             IsScanning = false;
             _cts = null;
         }
@@ -600,7 +907,7 @@ public sealed class MainViewModel : ObservableObject
                                   nameof(MountedCount), nameof(OrphanCount), nameof(StaleCount), nameof(OrphanSize), nameof(CheckedCount), nameof(VisibleCount),
                                   nameof(CompactableCount), nameof(CompactableSize), nameof(DisabledCount), nameof(DisabledSize),
                                   nameof(UnmeasuredCount), nameof(CompactableHint), nameof(CompactableTip), nameof(FilterLabel),
-                                  nameof(ShowUnmeasuredLink), nameof(ShowCompactableLink) })
+                                  nameof(ShowUnmeasuredLink), nameof(ShowCompactableLink), nameof(HeroSummary), nameof(ActionsTarget) })
             OnPropertyChanged(n);
         NotifyTargets();   // stale/mounted state may have changed
     }
@@ -617,7 +924,7 @@ public sealed class MainViewModel : ObservableObject
     /// each container is attached separately, so they do not interfere; writes stay one at a time.
     /// </param>
     private async Task RunOnTargets(string opName, Action<ProfileInfo, OpReporter, CancellationToken> op, string? confirm,
-                                    string confirmVerb = "Так", IReadOnlyList<ProfileInfo>? explicitTargets = null, int parallel = 1)
+                                    string? confirmVerb = null, IReadOnlyList<ProfileInfo>? explicitTargets = null, int parallel = 1)
     {
         var targets = explicitTargets?.ToList() ?? Targets();
         if (targets.Count == 0) return;
@@ -625,10 +932,10 @@ public sealed class MainViewModel : ObservableObject
         var busy = targets.Where(t => t.IsMounted).ToList();
         if (confirm != null)
         {
-            var who = targets.Count == 1 ? $" у контейнері {targets[0].DisplayUser}" : $" у {targets.Count} контейнерах";
+            var who = targets.Count == 1 ? Loc.T("Vm.Confirm.WhoOne", targets[0].DisplayUser) : Loc.T("Vm.Confirm.WhoMany", targets.Count);
             var msg = string.Format(confirm, who, targets.Count);
-            if (busy.Count > 0) msg += $"\n\nУвага: {busy.Count} з них зараз підмонтовано — вони будуть пропущені.";
-            if (!Dialog.Confirm(opName, msg, confirmVerb)) return;
+            if (busy.Count > 0) msg += Loc.T("Vm.Confirm.MountedSkipped", busy.Count);
+            if (!Dialog.Confirm(opName, msg, confirmVerb ?? Loc.T("Common.Yes"))) return;
         }
 
         IsWorking = true;
@@ -663,17 +970,17 @@ public sealed class MainViewModel : ObservableObject
                 await Task.Run(() => op(p, reporter, ct), ct);
                 ok++;
             }
-            catch (OperationCanceledException) { p.LastResult = "Скасовано"; return false; }
+            catch (OperationCanceledException) { p.LastResult = Loc.T("Vm.Status.Cancelled"); return false; }
             catch (InvalidOperationException ex) when (p.IsMounted || ex is OperationSkippedException)
             {
                 skipped++;
-                p.LastResult = "Пропущено: " + ex.Message;
-                Log.Warn($"{opName} {p.FilePath}: пропущено — {ex.Message}");
+                p.LastResult = Loc.T("Vm.Run.Skipped", ex.Message);
+                Log.Warn(Loc.T("Vm.Run.SkippedLog", opName, p.FilePath, ex.Message));
             }
             catch (Exception ex)
             {
                 failed++;
-                p.LastResult = "Помилка: " + ex.Message;
+                p.SetError(Loc.T("Vm.Run.Error", ex.Message));
                 Log.Error($"{opName} {p.FilePath}: {ex.Message}");
             }
             finally
@@ -684,7 +991,7 @@ public sealed class MainViewModel : ObservableObject
                 if (!sequential)
                 {
                     Progress = 100.0 * finished / targets.Count;
-                    Status = $"{opName}: {finished}/{targets.Count} готово, одночасно {running} · {sw.Elapsed:m\\:ss}";
+                    Status = Loc.T("Vm.Run.ParallelProgress", opName, finished, targets.Count, running, sw.Elapsed.ToString(@"m\:ss"));
                 }
             }
             return true;
@@ -699,7 +1006,7 @@ public sealed class MainViewModel : ObservableObject
             }
             else
             {
-                Status = $"{opName}: 0/{targets.Count}, одночасно до {parallel}";
+                Status = Loc.T("Vm.Run.ParallelStart", opName, targets.Count, parallel);
                 using var gate = new SemaphoreSlim(parallel);
                 await Task.WhenAll(targets.Select(async (p, i) =>
                 {
@@ -716,10 +1023,11 @@ public sealed class MainViewModel : ObservableObject
             _cts = null;
             RefreshStats();
             View.Refresh();
-            Status = $"{opName}: успішно {ok}" + (skipped > 0 ? $", пропущено {skipped}" : "") + (failed > 0 ? $", помилок {failed}" : "") +
-                     $" · {sw.Elapsed:m\\:ss}";
-            if (targets.Count > 1) Log.Info($"{opName}: {targets.Count} контейнерів, успішно {ok}, пропущено {skipped}, помилок {failed}, за {sw.Elapsed:m\\:ss}" +
-                                            (sequential ? "" : $" (одночасно до {parallel})"));
+            var elapsed = sw.Elapsed.ToString(@"m\:ss");
+            Status = Loc.T("Vm.Run.Summary", opName, ok) + (skipped > 0 ? Loc.T("Vm.Run.SummarySkipped", skipped) : "") +
+                     (failed > 0 ? Loc.T("Vm.Run.SummaryFailed", failed) : "") + $" · {elapsed}";
+            if (targets.Count > 1) Log.Info(Loc.T("Vm.Run.Log", opName, targets.Count, ok, skipped, failed, elapsed) +
+                                            (sequential ? "" : Loc.T("Vm.Run.LogParallel", parallel)));
         }
         await SaveAnalysisAsync(targets);
         _ = RefreshStorageAsync();
@@ -747,7 +1055,7 @@ public sealed class MainViewModel : ObservableObject
             var merged = await Task.Run(() => ProfileStore.SaveAnalysis(targets, known));
             if (merged != null) _analysisCache = merged;
         }
-        catch (Exception ex) { Log.Warn("Кеш аналізу: " + ex.Message); }
+        catch (Exception ex) { Log.Warn(Loc.T("Vm.AnalysisCache.Error", ex.Message)); }
     }
 
     /// <summary>
@@ -767,7 +1075,7 @@ public sealed class MainViewModel : ObservableObject
             if (gone.Count == 0) return;
             _analysisCache = await Task.Run(() => Storage.UpdateAnalysisCache(d => { foreach (var k in gone) d.Remove(k); }));
         }
-        catch (Exception ex) { Log.Warn("Кеш аналізу: " + ex.Message); }
+        catch (Exception ex) { Log.Warn(Loc.T("Vm.AnalysisCache.Error", ex.Message)); }
     }
 
     private async Task DeleteAsync()
@@ -777,22 +1085,18 @@ public sealed class MainViewModel : ObservableObject
 
         var size = Format.Bytes(targets.Sum(p => p.FileSize));
         var names = string.Join("\n", targets.Take(10).Select(p =>
-            $"  • {p.DisplayUser}  ({p.SizeText}; {p.DeleteReason}; змінювався {p.LastWrite:dd.MM.yyyy})"));
-        if (targets.Count > 10) names += $"\n  … і ще {targets.Count - 10}";
+            Loc.T("Vm.Delete.Item", p.DisplayUser, p.SizeText, p.DeleteReason, p.LastWrite)));
+        if (targets.Count > 10) names += Loc.T("Vm.More", targets.Count - 10);
         int recentDisabled = targets.Count(p => !p.IsStale);
-        var msg = $"ОСТАТОЧНО видалити {targets.Count} профіл(ь/і) з диска разом із папками користувачів?\n\n{names}\n\n" +
-                  $"Буде звільнено ≈ {size}. Відновити дані буде неможливо (кошика на мережевому ресурсі немає).\n" +
-                  "Якщо в папці лишається інший контейнер (напр. ODFC), папку буде збережено — видалиться лише обраний файл." +
-                  (recentDisabled > 0
-                      ? $"\n\nУвага: {recentDisabled} з них змінювались нещодавно — їх дозволено видалити лише тому, що обліковий запис " +
-                        "вимкнений або прострочений в AD. Перед видаленням стан в AD буде перевірено ще раз."
-                      : "");
-        if (!Dialog.Confirm("Видалення профілів", msg, "Видалити", kind: DialogKind.Danger)) return;
-        if (targets.Count > 1 && !Dialog.Confirm("Видалення профілів", $"Підтвердіть ще раз: видалити {targets.Count} профілів ({size})?",
-                $"Видалити {targets.Count}", kind: DialogKind.Danger))
+        var msg = Loc.T("Vm.Delete.Confirm", targets.Count, names, size) +
+                  (recentDisabled > 0 ? Loc.T("Vm.Delete.RecentWarning", recentDisabled) : "");
+        var title = Loc.T("Vm.Delete.Title");
+        if (!Dialog.Confirm(title, msg, Loc.T("Vm.Delete.Verb"), kind: DialogKind.Danger)) return;
+        if (targets.Count > 1 && !Dialog.Confirm(title, Loc.T("Vm.Delete.Confirm2", targets.Count, size),
+                Loc.T("Vm.Delete.Verb2", targets.Count), kind: DialogKind.Danger))
             return;
 
-        await RunOnTargets("Видалення", (p, r, ct) => ProfileOperations.Delete(p, Settings.StaleDays, r, ct), confirm: null);
+        await RunOnTargets(Loc.T("Vm.Op.Delete"), (p, r, ct) => ProfileOperations.Delete(p, Settings.StaleDays, r, ct), confirm: null);
 
         // drop deleted containers from the list and the size cache
         var gone = Profiles.Where(p => p.IsDeleted).ToList();
@@ -804,7 +1108,7 @@ public sealed class MainViewModel : ObservableObject
         await Task.Run(() => ProfileStore.ForgetHistory(gonePaths));
         Profiles.ReplaceAll(Profiles.Where(p => !p.IsDeleted).ToList());
         RefreshStats();
-        Status = $"Видалено {gone.Count} з {targets.Count} профілів" + (gone.Count < targets.Count ? " — решту пропущено, див. журнал" : "");
+        Status = Loc.T("Vm.Delete.Done", gone.Count, targets.Count) + (gone.Count < targets.Count ? Loc.T("Vm.Delete.DoneSkipped") : "");
     }
 
     private async Task UnmountAsync()
@@ -814,15 +1118,13 @@ public sealed class MainViewModel : ObservableObject
         var where = p.Handles.Count > 0
             ? string.Join("\n", p.Handles.Select(h => $"  • {h.ClientComputer}  {h.ClientUser}"))
             : "  • " + p.StateText;
-        if (!Dialog.Confirm("Відмонтування",
-                $"Примусово відмонтувати контейнер {p.DisplayUser}?\n\n{where}\n\n" +
-                "Якщо користувач зараз у сесії, він втратить доступ до профілю, а незбережені дані можуть бути пошкоджені. " +
-                "Рекомендується спершу завершити сеанс користувача кнопкою «Завершити сеанс».",
-                "Відмонтувати", kind: DialogKind.Danger))
+        var title = Loc.T("Vm.Unmount.Title");
+        if (!Dialog.Confirm(title, Loc.T("Vm.Unmount.Confirm", p.DisplayUser, where),
+                Loc.T("Vm.Unmount.Verb"), kind: DialogKind.Danger))
             return;
 
         IsWorking = true;
-        p.Busy = "відмонтування…";
+        p.Busy = Loc.T("Vm.Unmount.Busy");
         try
         {
             await Task.Run(() => ProfileOperations.Unmount(p));
@@ -830,9 +1132,9 @@ public sealed class MainViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            p.LastResult = "Помилка: " + ex.Message;
-            Log.Error($"Відмонтування {p.FilePath}: {ex.Message}");
-            Dialog.Error("Відмонтування", ex.Message);
+            p.SetError(Loc.T("Vm.Run.Error", ex.Message));
+            Log.Error(Loc.T("Vm.Unmount.ErrorLog", p.FilePath, ex.Message));
+            Dialog.Error(title, ex.Message);
         }
         finally
         {
@@ -849,12 +1151,9 @@ public sealed class MainViewModel : ObservableObject
         var targets = Targets();
         if (targets.Count == 0) return;
 
-        var current = targets.Count == 1 && targets[0].VirtualSize is long v ? $"Зараз: {Format.Bytes(v)}.\n\n" : "";
-        var input = Dialog.Prompt("Збільшення розміру",
-            current + "Новий максимальний розмір у GB:\n" +
-            "  • 50 — встановити 50 GB (контейнери, де вже стільки чи більше, буде пропущено);\n" +
-            "  • +10 — додати 10 GB до поточного розміру кожного контейнера.",
-            "+10", "Далі");
+        var title = Loc.T("Vm.Grow.Title");
+        var current = targets.Count == 1 && targets[0].VirtualSize is long v ? Loc.T("Vm.Grow.Current", Format.Bytes(v)) : "";
+        var input = Dialog.Prompt(title, current + Loc.T("Vm.Grow.Prompt"), "+10", Loc.T("Vm.Grow.Next"));
         if (input == null) return;
 
         var txt = input.Trim().Replace(',', '.').TrimEnd('G', 'g', 'B', 'b', ' ');
@@ -862,7 +1161,7 @@ public sealed class MainViewModel : ObservableObject
         if (!double.TryParse(txt.TrimStart('+'), System.Globalization.NumberStyles.Float,
                              System.Globalization.CultureInfo.InvariantCulture, out var gb) || gb <= 0 || gb > 65536)
         {
-            Dialog.Error("Збільшення розміру", $"Не вдалося розпізнати «{input}». Вкажіть число GB, наприклад 50 або +10.");
+            Dialog.Error(title, Loc.T("Vm.Grow.ParseError", input));
             return;
         }
 
@@ -877,24 +1176,22 @@ public sealed class MainViewModel : ObservableObject
         }
         if (plan.Count == 0)
         {
-            Dialog.Info("Збільшення розміру", "Немає контейнерів, які потрібно збільшувати: поточний розмір уже не менший (або невідомий).");
+            Dialog.Info(title, Loc.T("Vm.Grow.Nothing"));
             return;
         }
 
         var lines = string.Join("\n", plan.Take(10).Select(kv =>
             $"  • {kv.Key.DisplayUser}: {kv.Key.MaxSizeText} → {Format.Bytes(kv.Value)}"));
-        if (plan.Count > 10) lines += $"\n  … і ще {plan.Count - 10}";
+        if (plan.Count > 10) lines += Loc.T("Vm.More", plan.Count - 10);
         var skipped = targets.Count - plan.Count;
         var storage = string.Join("\n", Paths.Where(e => plan.Keys.Any(p => p.RootPath.Equals(e.Path, StringComparison.OrdinalIgnoreCase)))
                                              .Select(e => $"  {e.Path}: {e.SpaceText}"));
-        var msg = $"Збільшити максимальний розмір {plan.Count} контейнер(ів)?\n\n{lines}\n\n" +
-                  (skipped > 0 ? $"Пропущено {skipped}: розмір уже не менший або невідомий.\n" : "") +
-                  "Файл VHDX динамічний — місце на сховищі займатиметься поступово, у міру заповнення.\n" +
-                  (storage.Length > 0 ? $"Сховище:\n{storage}\n" : "") +
-                  "\nПоки триває операція, користувач не зможе увійти. Зменшити розмір назад цим інструментом не можна.";
-        if (!Dialog.Confirm("Збільшення розміру", msg, "Збільшити", kind: DialogKind.Warning)) return;
+        var msg = Loc.T("Vm.Grow.Confirm", plan.Count, lines,
+                        skipped > 0 ? Loc.T("Vm.Grow.Skipped", skipped) : "",
+                        storage.Length > 0 ? Loc.T("Vm.Grow.Storage", storage) : "");
+        if (!Dialog.Confirm(title, msg, Loc.T("Vm.Grow.Verb"), kind: DialogKind.Warning)) return;
 
-        await RunOnTargets("Збільшення розміру", (p, r, ct) => ProfileOperations.Grow(p, plan[p], r, ct),
+        await RunOnTargets(title, (p, r, ct) => ProfileOperations.Grow(p, plan[p], r, ct),
             confirm: null, explicitTargets: plan.Keys.ToList());
 
         lock (_sizeCache)
@@ -924,41 +1221,42 @@ public sealed class MainViewModel : ObservableObject
         var targets = SessionTargets();
         if (targets.Count == 0) return;
         var who = string.Join("\n", targets.Take(10).Select(p => $"  • {p.DisplayUser} @ {p.StateHost}"));
-        if (targets.Count > 10) who += $"\n  … і ще {targets.Count - 10}";
-        var text = Dialog.Prompt("Повідомлення користувачам",
-            $"Повідомлення з'явиться в сеансі на RDS-хості:\n{who}",
-            "Будь ласка, збережіть роботу й вийдіть із системи протягом 5 хвилин: профіль буде обслуговуватися.",
-            "Надіслати", multiline: true);
+        if (targets.Count > 10) who += Loc.T("Vm.More", targets.Count - 10);
+        var text = Dialog.Prompt(Loc.T("Vm.Message.Title"),
+            Loc.T("Vm.Message.Prompt", who),
+            Loc.T("Vm.Message.Default"),
+            Loc.T("Vm.Message.Send"), multiline: true);
         if (string.IsNullOrWhiteSpace(text)) return;
 
         IsWorking = true;
         int sent = 0, failed = 0, missing = 0;
+        var caption = Loc.T("Vm.Message.Caption");
         try
         {
             foreach (var p in targets)
             {
-                p.Busy = "надсилання повідомлення…";
+                p.Busy = Loc.T("Vm.Message.Busy");
                 try
                 {
                     var sessions = await Task.Run(() => FindSessions(p));
-                    if (sessions.Count == 0) { missing++; p.LastResult = "Сеанс користувача на хості не знайдено"; continue; }
-                    await Task.Run(() => { foreach (var s in sessions) RdsService.SendMessage(s, "Повідомлення від адміністратора", text); });
+                    if (sessions.Count == 0) { missing++; p.LastResult = Loc.T("Vm.Message.NoSession"); continue; }
+                    await Task.Run(() => { foreach (var s in sessions) RdsService.SendMessage(s, caption, text); });
                     sent += sessions.Count;
-                    p.LastResult = "Повідомлення надіслано: " + string.Join(", ", sessions);
-                    Log.Info($"Повідомлення {p.DisplayUser} ({string.Join(", ", sessions)}): {text.ReplaceLineEndings(" ")}");
+                    p.LastResult = Loc.T("Vm.Message.Sent", string.Join(", ", sessions));
+                    Log.Info(Loc.T("Vm.Message.Log", p.DisplayUser, string.Join(", ", sessions), text.ReplaceLineEndings(" ")));
                 }
                 catch (Exception ex)
                 {
                     failed++;
-                    p.LastResult = "Помилка надсилання: " + ex.Message;
-                    Log.Error($"Повідомлення {p.DisplayUser}: {ex.Message}");
+                    p.SetError(Loc.T("Vm.Message.SendError", ex.Message));
+                    Log.Error(Loc.T("Vm.Message.ErrorLog", p.DisplayUser, ex.Message));
                 }
                 finally { p.Busy = null; }
             }
         }
         finally { IsWorking = false; }
-        Status = $"Повідомлення: надіслано в {sent} сеанс(ів)" + (missing > 0 ? $", сеанс не знайдено: {missing}" : "") +
-                 (failed > 0 ? $", помилок: {failed}" : "");
+        Status = Loc.T("Vm.Message.Status", sent) + (missing > 0 ? Loc.T("Vm.Message.StatusMissing", missing) : "") +
+                 (failed > 0 ? Loc.T("Vm.Message.StatusFailed", failed) : "");
     }
 
     private async Task LogoffAsync()
@@ -970,34 +1268,32 @@ public sealed class MainViewModel : ObservableObject
         var found = new List<(ProfileInfo p, List<RdsSession> sessions)>();
         try
         {
-            Status = "Пошук сеансів на RDS-хостах…";
+            Status = Loc.T("Vm.Logoff.Searching");
             foreach (var p in targets)
             {
                 try { found.Add((p, await Task.Run(() => FindSessions(p)))); }
                 catch (Exception ex)
                 {
-                    p.LastResult = "Не вдалося отримати сеанси: " + ex.Message;
-                    Log.Error($"Сеанси {p.DisplayUser} @ {p.StateHost}: {ex.Message}");
+                    p.SetError(Loc.T("Vm.Logoff.SessionsError", ex.Message));
+                    Log.Error(Loc.T("Vm.Logoff.SessionsErrorLog", p.DisplayUser, p.StateHost, ex.Message));
                 }
             }
         }
-        finally { IsWorking = false; Status = "Готово"; }
+        finally { IsWorking = false; SetIdleStatus(); }
 
+        var title = Loc.T("Vm.Logoff.Title");
         var withSessions = found.Where(f => f.sessions.Count > 0).ToList();
         var notFound = targets.Where(t => !withSessions.Any(f => f.p == t)).ToList();
         if (withSessions.Count == 0)
         {
-            Dialog.Error("Завершення сеансу", "Сеансів цих користувачів на хостах не знайдено " +
-                "(або немає доступу до RDS API хоста). Можна скористатися кнопкою «Відмонтувати».");
+            Dialog.Error(title, Loc.T("Vm.Logoff.NoneFound"));
             return;
         }
 
         var list = string.Join("\n", withSessions.SelectMany(f => f.sessions).Take(12).Select(s => "  • " + s));
-        var msg = $"Завершити сеанс(и) користувачів?\n\n{list}\n\n" +
-                  (notFound.Count > 0 ? $"Для {notFound.Count} контейнер(ів) сеанс не знайдено — їх буде пропущено.\n\n" : "") +
-                  "Незбережені документи в сеансі буде втрачено. FSLogix коректно відключить профіль під час виходу — " +
-                  "це безпечніше, ніж «Відмонтувати». Рекомендується спершу надіслати повідомлення.";
-        if (!Dialog.Confirm("Завершення сеансу", msg, "Завершити сеанс", kind: DialogKind.Danger)) return;
+        var msg = Loc.T("Vm.Logoff.Confirm", list,
+                        notFound.Count > 0 ? Loc.T("Vm.Logoff.NotFound", notFound.Count) : "");
+        if (!Dialog.Confirm(title, msg, Loc.T("Vm.Logoff.Verb"), kind: DialogKind.Danger)) return;
 
         IsWorking = true;
         int ok = 0, failed = 0;
@@ -1005,23 +1301,23 @@ public sealed class MainViewModel : ObservableObject
         {
             foreach (var (p, sessions) in withSessions)
             {
-                p.Busy = "завершення сеансу…";
+                p.Busy = Loc.T("Vm.Logoff.Busy");
                 try
                 {
                     foreach (var s in sessions)
                     {
-                        Status = $"Завершення сеансу: {s}";
-                        Log.Warn($"Завершення сеансу {s} (контейнер {p.FilePath})");
+                        Status = Loc.T("Vm.Logoff.Progress", s);
+                        Log.Warn(Loc.T("Vm.Logoff.Log", s, p.FilePath));
                         await Task.Run(() => RdsService.Logoff(s));
                         ok++;
                     }
-                    p.LastResult = "Сеанс завершено: " + string.Join(", ", sessions.Select(s => $"{s.Host} #{s.Id}"));
+                    p.LastResult = Loc.T("Vm.Logoff.Done", string.Join(", ", sessions.Select(s => $"{s.Host} #{s.Id}")));
                 }
                 catch (Exception ex)
                 {
                     failed++;
-                    p.LastResult = "Помилка завершення сеансу: " + ex.Message;
-                    Log.Error($"Завершення сеансу {p.DisplayUser}: {ex.Message}");
+                    p.SetError(Loc.T("Vm.Logoff.Error", ex.Message));
+                    Log.Error(Loc.T("Vm.Logoff.ErrorLog", p.DisplayUser, ex.Message));
                 }
                 finally { p.Busy = null; }
             }
@@ -1029,10 +1325,10 @@ public sealed class MainViewModel : ObservableObject
         finally { IsWorking = false; }
 
         // the profile is detached during logoff; give FSLogix a moment, then re-read the state
-        Status = "Очікування відключення профілів…";
+        Status = Loc.T("Vm.Logoff.Waiting");
         await Task.Delay(TimeSpan.FromSeconds(5));
-        await RefreshItemsAsync(withSessions.Select(f => f.p).ToList(), "після завершення сеансів");
-        Status = $"Завершено сеансів: {ok}" + (failed > 0 ? $", помилок: {failed}" : "") +
-                 $"; ще підмонтовано: {withSessions.Count(f => f.p.IsMounted)}";
+        await RefreshItemsAsync(withSessions.Select(f => f.p).ToList(), Loc.T("Vm.Refresh.What.AfterLogoff"));
+        Status = Loc.T("Vm.Logoff.Status", ok) + (failed > 0 ? Loc.T("Vm.Logoff.StatusFailed", failed) : "") +
+                 Loc.T("Vm.Logoff.StatusMounted", withSessions.Count(f => f.p.IsMounted));
     }
 }

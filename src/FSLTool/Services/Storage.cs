@@ -34,7 +34,7 @@ public static class Storage
             if (File.Exists(SettingsFile))
                 return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(SettingsFile), Json) ?? new();
         }
-        catch (Exception ex) { Log.Warn("Не вдалося прочитати налаштування: " + ex.Message); }
+        catch (Exception ex) { Log.Warn(Loc.T("Svc.Storage.SettingsReadFailed", ex.Message)); }
         return new AppSettings();
     }
 
@@ -61,11 +61,12 @@ public static class Storage
             res.CopyTo(f);
         }
         var set = JsonSerializer.Deserialize<CleanupRuleSet>(File.ReadAllText(path), Json)
-                  ?? throw new InvalidDataException("Порожній файл правил");
+                  ?? throw new InvalidDataException(Loc.T("Svc.Storage.RulesEmpty"));
         foreach (var r in set.Rules)
             foreach (var p in r.Paths)
                 if (p.Split('\\', '/').Any(seg => seg is ".." or "."))
-                    throw new InvalidDataException($"Правило '{r.Name}': шлях '{p}' містить '..' або '.' — заборонено.");
+                    throw new InvalidDataException(Loc.T("Svc.Storage.RulePathDots", r.Name, p));
+        RuleNames.Register(set);
         return set;
     }
 
@@ -88,34 +89,52 @@ public static class Storage
     private static readonly object _analysisLock = new();
 
     public static Dictionary<string, AnalysisRecord> LoadAnalysisCache() =>
-        LoadShared<AnalysisRecord>(AnalysisCacheFile, _analysisLock, "Кеш аналізу");
+        LoadShared<AnalysisRecord>(AnalysisCacheFile, _analysisLock, "Svc.Storage.AnalysisCache");
 
     /// <summary>
     /// Re-reads the cache from disk (another admin or the headless job may have written to it),
     /// applies the change and saves it atomically. Returns the merged cache.
     /// </summary>
     public static Dictionary<string, AnalysisRecord> UpdateAnalysisCache(Action<Dictionary<string, AnalysisRecord>> change) =>
-        UpdateShared(AnalysisCacheFile, _analysisLock, "Кеш аналізу", change);
+        UpdateShared(AnalysisCacheFile, _analysisLock, "Svc.Storage.AnalysisCache", change);
 
     public static string HistoryFile => Path.Combine(DataDir, "history.json");
     private static readonly object _historyLock = new();
 
     public static Dictionary<string, List<SizePoint>> LoadHistory() =>
-        LoadShared<List<SizePoint>>(HistoryFile, _historyLock, "Історія розмірів");
+        LoadShared<List<SizePoint>>(HistoryFile, _historyLock, "Svc.Storage.History");
 
     public static Dictionary<string, List<SizePoint>> UpdateHistory(Action<Dictionary<string, List<SizePoint>>> change) =>
-        UpdateShared(HistoryFile, _historyLock, "Історія розмірів", change);
+        UpdateShared(HistoryFile, _historyLock, "Svc.Storage.History", change);
+
+    /// <summary>Named custom filters (button «Фільтр» next to the search box, headless --where): name → condition tree.</summary>
+    public static string FiltersFile => Path.Combine(DataDir, "filters.json");
+    private static readonly object _filtersLock = new();
+
+    public static Dictionary<string, FilterGroup> LoadFilters()
+    {
+        var d = LoadShared<FilterGroup>(FiltersFile, _filtersLock, "Svc.Storage.Filters");
+        foreach (var g in d.Values) g.Init();
+        return d;
+    }
+
+    public static Dictionary<string, FilterGroup> UpdateFilters(Action<Dictionary<string, FilterGroup>> change)
+    {
+        var d = UpdateShared(FiltersFile, _filtersLock, "Svc.Storage.Filters", change);
+        foreach (var g in d.Values) g.Init();
+        return d;
+    }
 
     // ── shared JSON dictionaries keyed by container path ──
 
-    private static Dictionary<string, T> LoadShared<T>(string file, object gate, string what)
+    private static Dictionary<string, T> LoadShared<T>(string file, object gate, string whatKey)
     {
         lock (gate)
             using (CrossProcessLock(file))
-                return ReadShared<T>(file, what);
+                return ReadShared<T>(file, whatKey);
     }
 
-    private static Dictionary<string, T> ReadShared<T>(string file, string what)
+    private static Dictionary<string, T> ReadShared<T>(string file, string whatKey)
     {
         try
         {
@@ -123,16 +142,16 @@ public static class Storage
                 return JsonSerializer.Deserialize<Dictionary<string, T>>(File.ReadAllText(file), CacheJson)
                        is { } d ? new(d, StringComparer.OrdinalIgnoreCase) : new(StringComparer.OrdinalIgnoreCase);
         }
-        catch (Exception ex) { Log.Warn($"{what}: файл пошкоджено, його буде перезаписано: {ex.Message}"); }
+        catch (Exception ex) { Log.Warn(Loc.T("Svc.Storage.FileCorrupt", Loc.T(whatKey), ex.Message)); }
         return new(StringComparer.OrdinalIgnoreCase);
     }
 
-    private static Dictionary<string, T> UpdateShared<T>(string file, object gate, string what, Action<Dictionary<string, T>> change)
+    private static Dictionary<string, T> UpdateShared<T>(string file, object gate, string whatKey, Action<Dictionary<string, T>> change)
     {
         lock (gate)
             using (CrossProcessLock(file))
             {
-                var d = ReadShared<T>(file, what);
+                var d = ReadShared<T>(file, whatKey);
                 change(d);
                 try
                 {
@@ -141,7 +160,7 @@ public static class Storage
                     File.WriteAllText(tmp, JsonSerializer.Serialize(d, CacheJson), Encoding.UTF8);
                     File.Move(tmp, file, true);
                 }
-                catch (Exception ex) { Log.Warn($"{what}: не вдалося зберегти: {ex.Message}"); }
+                catch (Exception ex) { Log.Warn(Loc.T("Svc.Storage.SaveFailed", Loc.T(whatKey), ex.Message)); }
                 return d;
             }
     }
@@ -162,7 +181,7 @@ public static class Storage
             catch (AbandonedMutexException) { return new MutexRelease(m); }   // previous owner died — we own it now
             m.Dispose();
         }
-        catch (Exception ex) { Log.Warn($"Блокування {Path.GetFileName(file)} недоступне: {ex.Message}"); }
+        catch (Exception ex) { Log.Warn(Loc.T("Svc.Storage.LockUnavailable", Path.GetFileName(file), ex.Message)); }
         return null;
     }
 

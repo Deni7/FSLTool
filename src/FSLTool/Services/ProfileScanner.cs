@@ -36,7 +36,7 @@ public static partial class ProfileScanner
         {
             ct.ThrowIfCancellationRequested();
             var rootDir = new DirectoryInfo(root);
-            if (!rootDir.Exists) { Log.Warn($"Шлях недоступний: {root}"); continue; }
+            if (!rootDir.Exists) { Log.Warn(Loc.T("Svc.Scan.PathUnavailable", root)); continue; }
 
             List<DirectoryInfo> dirs;
             try { dirs = rootDir.EnumerateDirectories("*", opt).ToList(); }
@@ -104,7 +104,7 @@ public static partial class ProfileScanner
     public static void RefreshInfo(IList<ProfileInfo> profiles, Dictionary<string, long> sizeCache,
                                    Action<string>? progress, CancellationToken ct)
     {
-        progress?.Invoke("файли та заголовки…");
+        progress?.Invoke(Loc.T("Svc.Scan.Progress.Files"));
         Parallel.ForEach(profiles, new ParallelOptions { MaxDegreeOfParallelism = IoParallelism, CancellationToken = ct }, p =>
         {
             var fi = new FileInfo(p.FilePath);
@@ -121,11 +121,11 @@ public static partial class ProfileScanner
         });
 
         var alive = profiles.Where(p => !p.IsDeleted).ToList();
-        progress?.Invoke("стан підключень…");
+        progress?.Invoke(Loc.T("Svc.Scan.Progress.States"));
         UpdateStates(alive, ct);
-        progress?.Invoke("облікові записи…");
+        progress?.Invoke(Loc.T("Svc.Scan.Progress.Accounts"));
         ResolveAccounts(alive, ct, force: true);
-        progress?.Invoke("стан в AD…");
+        progress?.Invoke(Loc.T("Svc.Scan.Progress.Ad"));
         AdService.Resolve(alive, ct, force: true);
 
         var now = DateTime.Now;
@@ -206,7 +206,7 @@ public static partial class ProfileScanner
             catch (Exception ex)
             {
                 // DC unreachable etc. — don't call anything an orphan; retry on next scan
-                Log.Warn("Пошук облікових записів у AD не вдався: " + ex.Message);
+                Log.Warn(Loc.T("Svc.Scan.AccountLookupFailed", ex.Message));
                 return;
             }
         }
@@ -227,7 +227,7 @@ public static partial class ProfileScanner
         var sw = Stopwatch.StartNew();
         List<SmbHandle> handles;
         try { handles = SmbService.GetOpenFiles(); }
-        catch (Exception ex) { Log.Warn("Не вдалося отримати відкриті SMB-файли: " + ex.Message); handles = new(); }
+        catch (Exception ex) { Log.Warn(Loc.T("Svc.Scan.SmbOpenFilesFailed", ex.Message)); handles = new(); }
         var smbMs = sw.ElapsedMilliseconds;
 
         var byPath = handles.GroupBy(h => h.LocalPath, StringComparer.OrdinalIgnoreCase)
@@ -236,7 +236,7 @@ public static partial class ProfileScanner
         // virtual disks attached on THIS server — one call instead of opening every container file
         var attached = VirtualDisk.GetAttachedBackingFiles();
         var attachMs = sw.ElapsedMilliseconds - smbMs;
-        if (attached == null) Log.Warn("Список локально підключених дисків недоступний — стан «Локально» визначиться перед дією");
+        if (attached == null) Log.Warn(Loc.T("Svc.Scan.AttachedListUnavailable"));
 
         // Containers on THIS server are NOT opened during the scan: with hundreds of VHDX files that took minutes
         // (antivirus scans each file on open; RDS hosts holding a file must first give up their SMB lease).
@@ -262,9 +262,8 @@ public static partial class ProfileScanner
             else
                 p.State = attached?.Contains(local) == true ? MountState.AttachedLocal : MountState.Free;
         });
-        Log.Info($"  стан підключень: SMB-запит {smbMs} мс ({SmbService.LastTimings}; {handles.Count} VHD-дескрипторів), " +
-                 $"локально підключені {attachMs} мс ({attached?.Count.ToString() ?? "—"}), " +
-                 $"перевірка блокувань {sw.ElapsedMilliseconds - smbMs - attachMs} мс ({probed} файлів на інших серверах)");
+        Log.Info(Loc.T("Svc.Scan.StateTimings", smbMs, SmbService.LastTimings, handles.Count,
+                       attachMs, attached?.Count.ToString() ?? "—", sw.ElapsedMilliseconds - smbMs - attachMs, probed));
     }
 
     /// <summary>Checks whether anybody has the file open for writing (attached somewhere).</summary>

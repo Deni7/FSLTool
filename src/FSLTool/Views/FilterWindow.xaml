@@ -1,0 +1,185 @@
+<Window x:Class="FSLTool.Views.FilterWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:m="clr-namespace:FSLTool.Models"
+        xmlns:l="clr-namespace:FSLTool.Localization"
+        Title="{l:Tr Filter.Title}"
+        Icon="pack://application:,,,/FSLTool;component/Assets/app.ico"
+        Width="980" Height="620" MinWidth="760" MinHeight="380"
+        Background="{DynamicResource Bg}" Foreground="{DynamicResource Text}" FontFamily="{StaticResource UiFont}" FontSize="13"
+        TextOptions.TextFormattingMode="Display" UseLayoutRounding="True"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
+    <Window.Resources>
+        <!-- fields grouped by topic in the drop-down -->
+        <CollectionViewSource x:Key="Fields" Source="{x:Static m:FilterFields.All}">
+            <CollectionViewSource.GroupDescriptions>
+                <PropertyGroupDescription PropertyName="Group"/>
+            </CollectionViewSource.GroupDescriptions>
+        </CollectionViewSource>
+
+        <!-- one condition: [✓] field  operator  value [ … value2 ] unit  ✕ -->
+        <DataTemplate DataType="{x:Type m:FilterCondition}">
+            <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="1"
+                    CornerRadius="8" Padding="10,6" Margin="0,0,0,6">
+                <StackPanel>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="260"/>
+                            <ColumnDefinition Width="190"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <CheckBox IsChecked="{Binding IsEnabled}" VerticalAlignment="Center" Margin="0,0,10,0"
+                                  ToolTip="{l:Tr Filter.Cond.EnableTip}"/>
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding Source={StaticResource Fields}}" DisplayMemberPath="Label"
+                                  SelectedValuePath="Key" SelectedValue="{Binding Field}" MaxDropDownHeight="460" IsSynchronizedWithCurrentItem="False"
+                                  ToolTip="{Binding FieldHint}">
+                            <ComboBox.GroupStyle>
+                                <GroupStyle>
+                                    <GroupStyle.HeaderTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding Name}" Style="{StaticResource SectionTitle}" Margin="8,8,0,2"/>
+                                        </DataTemplate>
+                                    </GroupStyle.HeaderTemplate>
+                                </GroupStyle>
+                            </ComboBox.GroupStyle>
+                        </ComboBox>
+                        <ComboBox Grid.Column="2" Margin="6,0,0,0" ItemsSource="{Binding Operators}" DisplayMemberPath="Label"
+                                  SelectedValuePath="Value" SelectedValue="{Binding Op}"/>
+                        <DockPanel Grid.Column="3" Margin="6,0,0,0" LastChildFill="True">
+                            <TextBlock DockPanel.Dock="Right" Text="{Binding Unit}" Style="{StaticResource MutedText}"
+                                       VerticalAlignment="Center" Margin="6,0,0,0"
+                                       Visibility="{Binding Unit, Converter={StaticResource Vis}}"/>
+                            <Grid>
+                            <ComboBox ItemsSource="{Binding Choices}" DisplayMemberPath="Label"
+                                      SelectedValuePath="Value" SelectedValue="{Binding Value}"
+                                      Visibility="{Binding ShowChoice, Converter={StaticResource Vis}}"/>
+                            <Grid Visibility="{Binding ShowText, Converter={StaticResource Vis}}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid>
+                                    <TextBox x:Name="V1" Text="{Binding Value, UpdateSourceTrigger=PropertyChanged, Delay=250}"/>
+                                    <TextBlock Text="{Binding Placeholder}" Foreground="{DynamicResource Muted}" Margin="9,0,0,0"
+                                               VerticalAlignment="Center" IsHitTestVisible="False" TextTrimming="CharacterEllipsis">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Text, ElementName=V1}" Value="">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Grid>
+                                <TextBlock Grid.Column="1" Text="{l:Tr Filter.Cond.To}" Style="{StaticResource MutedText}" VerticalAlignment="Center" Margin="8,0"
+                                           Visibility="{Binding ShowSecond, Converter={StaticResource Vis}}"/>
+                                <TextBox Grid.Column="2" Width="130" Text="{Binding Value2, UpdateSourceTrigger=PropertyChanged, Delay=250}"
+                                         Visibility="{Binding ShowSecond, Converter={StaticResource Vis}}"/>
+                            </Grid>
+                            </Grid>
+                        </DockPanel>
+                        <Button Grid.Column="4" Content="✕" Style="{StaticResource GhostButton}" Margin="6,0,0,0" Padding="8,4"
+                                Click="Remove_Click" ToolTip="{l:Tr Filter.Cond.RemoveTip}"/>
+                    </Grid>
+                    <TextBlock Text="{Binding Error}" Foreground="{DynamicResource Crit}" FontSize="11.5" Margin="26,4,0,0" TextWrapping="Wrap"
+                               Visibility="{Binding Error, Converter={StaticResource Vis}}"/>
+                </StackPanel>
+            </Border>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsEnabled}" Value="False">
+                    <Setter Property="Opacity" Value="0.5"/>
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+
+        <!-- a group: [✓] [НЕ] match [all|any] of:  + condition  + group  ✕ ; nested items below -->
+        <DataTemplate DataType="{x:Type m:FilterGroup}">
+            <Border x:Name="frame" BorderBrush="{DynamicResource Accent}" BorderThickness="2,0,0,0" Padding="12,4,0,4" Margin="0,0,0,6">
+                <StackPanel>
+                    <DockPanel Margin="0,0,0,8">
+                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                            <Button Content="{l:Tr Filter.Group.AddCondition}" Click="AddCondition_Click" Margin="0,0,6,0" Padding="10,5"/>
+                            <Button Content="{l:Tr Filter.Group.AddGroup}" Click="AddGroup_Click" Padding="10,5"
+                                    ToolTip="{l:Tr Filter.Group.AddGroupTip}"/>
+                            <Button x:Name="removeGroup" Content="✕" Style="{StaticResource GhostButton}" Margin="6,0,0,0" Padding="8,4"
+                                    Click="Remove_Click" ToolTip="{l:Tr Filter.Group.RemoveTip}"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <CheckBox x:Name="groupOn" IsChecked="{Binding IsEnabled}" VerticalAlignment="Center" Margin="0,0,10,0"
+                                      ToolTip="{l:Tr Filter.Group.EnableTip}"/>
+                            <CheckBox IsChecked="{Binding Negate}" Content="{l:Tr Filter.Group.Not}" VerticalAlignment="Center" Margin="0,0,12,0"
+                                      ToolTip="{l:Tr Filter.Group.NotTip}"/>
+                            <TextBlock Text="{l:Tr Filter.Group.ShowIf}" VerticalAlignment="Center" Style="{StaticResource MutedText}" FontSize="13"/>
+                            <ComboBox Width="200" Margin="8,0" ItemsSource="{x:Static m:FilterGroup.ModeOptions}" DisplayMemberPath="Label"
+                                      SelectedValuePath="Value" SelectedValue="{Binding Mode}"/>
+                        </StackPanel>
+                    </DockPanel>
+                    <ItemsControl ItemsSource="{Binding Items}" Focusable="False"/>
+                    <TextBlock Text="{l:Tr Filter.Group.Empty}" Style="{StaticResource MutedText}" Margin="0,0,0,4"
+                               Visibility="{Binding IsEmpty, Converter={StaticResource Vis}}"/>
+                </StackPanel>
+            </Border>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsRoot}" Value="True">
+                    <Setter TargetName="removeGroup" Property="Visibility" Value="Collapsed"/>
+                    <Setter TargetName="groupOn" Property="Visibility" Value="Collapsed"/>
+                    <Setter TargetName="frame" Property="BorderThickness" Value="0"/>
+                    <Setter TargetName="frame" Property="Padding" Value="0"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Negate}" Value="True">
+                    <Setter TargetName="frame" Property="BorderBrush" Value="{DynamicResource Warn}"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsEnabled}" Value="False">
+                    <Setter TargetName="frame" Property="Opacity" Value="0.5"/>
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+    </Window.Resources>
+
+    <Grid Background="{DynamicResource Bg}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- saved filters -->
+        <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="0,0,0,1" Padding="18,12">
+            <DockPanel>
+                <TextBlock Text="{l:Tr Filter.Saved}" Style="{StaticResource MutedText}" FontSize="13" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <ComboBox x:Name="SavedBox" Width="280" ItemsSource="{Binding SavedFilterNames}"
+                          SelectionChanged="SavedBox_SelectionChanged"
+                          ToolTip="{l:Tr Filter.SavedTip}"/>
+                <Button Content="{l:Tr Filter.SaveAs}" Margin="8,0,0,0" Click="Save_Click"
+                        ToolTip="{l:Tr Filter.SaveAsTip}"/>
+                <Button x:Name="DeleteSaved" Content="{l:Tr Filter.DeleteSaved}" Margin="6,0,0,0" Click="DeleteSaved_Click"
+                        ToolTip="{l:Tr Filter.DeleteSavedTip}"/>
+                <TextBlock HorizontalAlignment="Right" VerticalAlignment="Center" Style="{StaticResource MutedText}" FontSize="13"
+                           Text="{l:Tr Filter.Shown, Arg={Binding VisibleCount}, Arg2={Binding TotalCount}}"/>
+            </DockPanel>
+        </Border>
+
+        <!-- condition tree -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="18,14,18,8">
+            <ContentPresenter Content="{Binding CustomFilter}"/>
+        </ScrollViewer>
+
+        <!-- summary + buttons -->
+        <Border Grid.Row="2" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="0,1,0,0" Padding="18,12">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="{l:Tr Filter.Clear}" Margin="12,0,8,0" Click="Clear_Click" ToolTip="{l:Tr Filter.ClearTip}"/>
+                    <Button Content="{l:Tr Common.Close}" Style="{StaticResource PrimaryButton}" MinWidth="100" Click="Close_Click" IsCancel="True"/>
+                </StackPanel>
+                <TextBlock VerticalAlignment="Center" TextWrapping="Wrap" Style="{StaticResource MutedText}" FontSize="12.5"
+                           Text="{Binding CustomFilterText}"/>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>

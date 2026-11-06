@@ -1,0 +1,63 @@
+<!-- Light palette. Keys must match Palette.Dark.xaml exactly: ThemeManager swaps the two at run time
+     and every brush is used through DynamicResource (code: ThemeManager.Brush). -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- surfaces -->
+    <SolidColorBrush x:Key="Bg" Color="#E9EEF5"/>
+    <SolidColorBrush x:Key="Surface" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="Surface2" Color="#F2F5FA"/>
+    <SolidColorBrush x:Key="Line" Color="#DCE3EE"/>
+    <SolidColorBrush x:Key="LineSoft" Color="#E2E8F0"/>
+    <SolidColorBrush x:Key="Track" Color="#E4E9F1"/>
+    <SolidColorBrush x:Key="Hover" Color="#F3F6FB"/>
+    <SolidColorBrush x:Key="Selection" Color="#E6EEFC"/>
+    <SolidColorBrush x:Key="Thumb" Color="#C3CCDA"/>
+    <Color x:Key="ShadowColor">#142040</Color>
+
+    <!-- text -->
+    <SolidColorBrush x:Key="Text" Color="#142040"/>
+    <SolidColorBrush x:Key="Text2" Color="#3A4864"/>
+    <SolidColorBrush x:Key="Muted" Color="#5B6880"/>
+
+    <!-- primary (active tab, main button) and the dark "hero" card (actions, rules) -->
+    <SolidColorBrush x:Key="Primary" Color="#1C2F66"/>
+    <SolidColorBrush x:Key="OnPrimary" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="Hero" Color="#1C2F66"/>
+    <SolidColorBrush x:Key="OnHero" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="OnHeroMuted" Color="#C9D4EE"/>
+    <SolidColorBrush x:Key="HeroItem" Color="#1FFFFFFF"/>
+    <SolidColorBrush x:Key="HeroHover" Color="#14FFFFFF"/>
+    <SolidColorBrush x:Key="HeroLine" Color="#40FFFFFF"/>
+    <!-- the highlighted action on the hero card («Очистити», «Редагувати») -->
+    <SolidColorBrush x:Key="HeroPrimary" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="OnHeroPrimary" Color="#142040"/>
+    <SolidColorBrush x:Key="HeroPrimaryItem" Color="#E3EBFC"/>
+
+    <!-- accent and states: solid (bars, dots), soft (chip background), text (on the soft colour, ≥ 4.5:1) -->
+    <SolidColorBrush x:Key="Accent" Color="#2F62D6"/>
+    <SolidColorBrush x:Key="AccentSoft" Color="#E3EBFC"/>
+    <SolidColorBrush x:Key="AccentText" Color="#1C2F66"/>
+    <SolidColorBrush x:Key="UsageOk" Color="#2F62D6"/>
+    <SolidColorBrush x:Key="Ok" Color="#1F9D63"/>
+    <SolidColorBrush x:Key="OkSoft" Color="#E1F3EA"/>
+    <SolidColorBrush x:Key="OkText" Color="#17704A"/>
+    <SolidColorBrush x:Key="Warn" Color="#D9831A"/>
+    <SolidColorBrush x:Key="WarnSoft" Color="#FDEBD3"/>
+    <SolidColorBrush x:Key="WarnText" Color="#8A4D00"/>
+    <SolidColorBrush x:Key="Crit" Color="#D93B3B"/>
+    <SolidColorBrush x:Key="CritSoft" Color="#FBE2E1"/>
+    <SolidColorBrush x:Key="CritText" Color="#B52A2A"/>
+    <SolidColorBrush x:Key="CritLine" Color="#F0B4B2"/>
+    <SolidColorBrush x:Key="Mount" Color="#6D45CF"/>
+    <SolidColorBrush x:Key="MountSoft" Color="#EEE7FC"/>
+    <SolidColorBrush x:Key="MountText" Color="#5530B0"/>
+    <SolidColorBrush x:Key="Neutral" Color="#8592A8"/>
+    <SolidColorBrush x:Key="NeutralSoft" Color="#EEF2F7"/>
+    <SolidColorBrush x:Key="NeutralText" Color="#3A4864"/>
+    <SolidColorBrush x:Key="PinkSoft" Color="#FCE4EF"/>
+    <SolidColorBrush x:Key="PinkText" Color="#9C2A5E"/>
+    <!-- danger action on the hero card -->
+    <SolidColorBrush x:Key="HeroDanger" Color="#29D93B3B"/>
+    <SolidColorBrush x:Key="HeroDangerText" Color="#FFD3D1"/>
+    <SolidColorBrush x:Key="HeroDangerLine" Color="#F3A9A6"/>
+</ResourceDictionary>

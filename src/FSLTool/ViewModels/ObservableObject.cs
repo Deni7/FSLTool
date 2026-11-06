@@ -11,6 +11,9 @@ public abstract class ObservableObject : INotifyPropertyChanged
     protected void OnPropertyChanged([CallerMemberName] string? name = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
+    /// <summary>Tells WPF that every property may have changed (e.g. after the UI language changed).</summary>
+    protected void RefreshAllBindings() => OnPropertyChanged(string.Empty);
+
     protected bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
     {
         if (EqualityComparer<T>.Default.Equals(field, value)) return false;

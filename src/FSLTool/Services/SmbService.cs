@@ -18,8 +18,8 @@ public static class SmbService
         try { return GetViaWmi(); }
         catch (Exception ex)
         {
-            Log.Warn($"WMI MSFT_SmbOpenFile недоступний ({ex.Message}), використовую NetFileEnum");
-            LastTimings = "через NetFileEnum, без імен хостів";
+            Log.Warn(Loc.T("Svc.Smb.WmiUnavailable", ex.Message));
+            LastTimings = Loc.T("Svc.Smb.TimingsNetFileEnum");
             return GetViaNetApi();
         }
     }
@@ -41,7 +41,7 @@ public static class SmbService
         // Reverse DNS of client IPs: unique IPs only, in parallel, with a timeout
         // (sequential lookups of hosts without PTR records used to cost seconds each).
         var names = ResolveClients(raw.Select(r => r.client).Distinct(StringComparer.OrdinalIgnoreCase));
-        LastTimings = $"WMI {wmiMs} мс, DNS {sw.ElapsedMilliseconds - wmiMs} мс";
+        LastTimings = Loc.T("Svc.Smb.Timings", wmiMs, sw.ElapsedMilliseconds - wmiMs);
 
         return raw.Where(r => IsVhd(r.path)).Select(r => new SmbHandle
         {
@@ -98,7 +98,7 @@ public static class SmbService
     {
         var list = new List<SmbHandle>();
         int rc = NativeMethods.NetFileEnum(null, null, null, 3, out var buf, -1, out int read, out _, IntPtr.Zero);
-        if (rc != 0) { Log.Warn($"NetFileEnum помилка {rc}"); return list; }
+        if (rc != 0) { Log.Warn(Loc.T("Svc.Smb.NetFileEnumError", rc)); return list; }
         try
         {
             int sz = Marshal.SizeOf<NativeMethods.FILE_INFO_3>();
@@ -135,14 +135,14 @@ public static class SmbService
             }
             catch (Exception ex)
             {
-                Log.Warn($"WMI ForceClose не вдався ({ex.Message}), пробую NetFileClose");
+                Log.Warn(Loc.T("Svc.Smb.ForceCloseFallback", ex.Message));
             }
         }
         if (!ulong.TryParse(h.FileId, out var id))
-            throw new InvalidOperationException($"Некоректний FileId '{h.FileId}'");
+            throw new InvalidOperationException(Loc.T("Svc.Smb.BadFileId", h.FileId));
         int rc = NativeMethods.NetFileClose(null, (uint)(id & 0xFFFFFFFF));
         if (rc != 0 && rc != 2314 /* NERR_FileIdNotFound */)
-            throw new InvalidOperationException($"NetFileClose повернув помилку {rc}");
+            throw new InvalidOperationException(Loc.T("Svc.Smb.NetFileCloseError", rc));
     }
 
     private static bool IsVhd(string p) =>

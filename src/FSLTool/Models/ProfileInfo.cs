@@ -105,6 +105,8 @@ public sealed record FolderCrumb(string Name, FolderNode? Node);
 public sealed class RuleEstimate
 {
     public string RuleName { get; init; } = "";
+    /// <summary>Rule name in the UI language (RuleName is the stable name kept in the analysis cache).</summary>
+    [JsonIgnore] public string DisplayName => RuleNames.Display(RuleName);
     public long Bytes { get; init; }
     public int Files { get; init; }
     [JsonIgnore] public string SizeText => Format.Bytes(Bytes);
@@ -123,7 +125,7 @@ public sealed class FileUsage
     public DateTime Modified { get; init; }
 
     [JsonIgnore] public string Name => System.IO.Path.GetFileName(Path);
-    [JsonIgnore] public string Folder => System.IO.Path.GetDirectoryName(Path) is { Length: > 0 } d ? d : "(корінь)";
+    [JsonIgnore] public string Folder => System.IO.Path.GetDirectoryName(Path) is { Length: > 0 } d ? d : Loc.T("Profile.Files.Root");
     [JsonIgnore] public string SizeText => Format.Bytes(Size);
     [JsonIgnore] public string ModifiedText => Modified.ToString("dd.MM.yyyy");
     /// <summary>Size relative to the largest file in the list (bar width).</summary>
@@ -199,7 +201,8 @@ public sealed class ProfileInfo : ObservableObject
 
     private bool _adKnown;
     public string AdText => !_adKnown ? "—"
-        : (AdStateText ?? "активний") + (LastLogon is DateTime t ? $", вхід {t:dd.MM.yyyy}" : ", входів не було");
+        : LastLogon is DateTime t ? Loc.T("Profile.Ad.WithLogon", AdStateText ?? Loc.T("Profile.Ad.Active"), t)
+        : Loc.T("Profile.Ad.NoLogon", AdStateText ?? Loc.T("Profile.Ad.Active"));
 
     public void SetAdState(bool known, bool disabled, string? reason, DateTime? lastLogon)
     {
@@ -235,7 +238,7 @@ public sealed class ProfileInfo : ObservableObject
     public string DeleteReason => string.Join(", ", new[]
     {
         IsDisabled ? AdStateText : null,
-        IsStale ? $"не змінювався {(DateTime.Now - LastWrite).TotalDays:0} дн." : null,
+        IsStale ? Loc.T("Profile.DeleteReason.Stale", (DateTime.Now - LastWrite).TotalDays) : null,
     }.Where(x => x != null));
 
     /// <summary>Set after the container was deleted from disk; the row is then removed from the list.</summary>
@@ -249,7 +252,7 @@ public sealed class ProfileInfo : ObservableObject
     private DateTime? _analyzedAt;
     /// <summary>When the volume inside the container was last measured (Аналіз / Очищення).</summary>
     public DateTime? AnalyzedAt { get => _analyzedAt; set { if (Set(ref _analyzedAt, value)) OnPropertyChanged(nameof(AnalyzedText)); } }
-    public string AnalyzedText => AnalyzedAt is DateTime t ? t.ToString("dd.MM.yyyy HH:mm:ss") : "ще не виконувався";
+    public string AnalyzedText => AnalyzedAt is DateTime t ? t.ToString("dd.MM.yyyy HH:mm:ss") : Loc.T("Profile.NotAnalyzed");
 
     private bool _hasDiffDisk;
     /// <summary>RW.VHDX / differencing disk present next to the container.</summary>
@@ -279,15 +282,15 @@ public sealed class ProfileInfo : ObservableObject
         string.Join(", ", Handles.Select(h => $"{h.ClientUser} @ {h.ClientComputer}".Trim(' ', '@')).Distinct());
 
     public string VolumeText => UsageIsExact
-        ? $"{Format.Bytes(VolumeUsed!.Value)} з {Format.Bytes(VolumeTotal!.Value)}"
-        : "— (потрібен вимір)";
+        ? Loc.T("Profile.VolumeOf", Format.Bytes(VolumeUsed!.Value), Format.Bytes(VolumeTotal!.Value))
+        : Loc.T("Profile.NeedsMeasure");
 
     public string StateLabel => State switch
     {
-        MountState.Free => "Вільний",
-        MountState.InUseSmb => "У сесії",
-        MountState.AttachedLocal => "Локально",
-        MountState.Locked => "Заблоковано",
+        MountState.Free => Loc.T("Profile.State.Free"),
+        MountState.InUseSmb => Loc.T("Profile.State.InSession"),
+        MountState.AttachedLocal => Loc.T("Profile.State.Local"),
+        MountState.Locked => Loc.T("Profile.State.Locked"),
         _ => "—",
     };
 
@@ -295,10 +298,10 @@ public sealed class ProfileInfo : ObservableObject
 
     public string StateText => State switch
     {
-        MountState.Free => "Вільний",
-        MountState.InUseSmb => "Підмонтовано: " + string.Join(", ", Handles.Select(h => h.ClientComputer).Where(s => s.Length > 0).Distinct()),
-        MountState.AttachedLocal => "Підключено локально",
-        MountState.Locked => "Заблоковано",
+        MountState.Free => Loc.T("Profile.State.Free"),
+        MountState.InUseSmb => Loc.T("Profile.StateText.Mounted", string.Join(", ", Handles.Select(h => h.ClientComputer).Where(s => s.Length > 0).Distinct())),
+        MountState.AttachedLocal => Loc.T("Profile.StateText.AttachedLocal"),
+        MountState.Locked => Loc.T("Profile.State.Locked"),
         _ => "—",
     };
 
@@ -317,18 +320,18 @@ public sealed class ProfileInfo : ObservableObject
     public long? Reclaimable => UsageIsExact ? Math.Max(0, FileSize - VolumeUsed!.Value) : null;
     public bool WorthCompacting => Reclaimable >= CompactMinBytes;
     public string ReclaimableText => Reclaimable is long r ? "≈ " + Format.Bytes(r) : "—";
-    public string ReclaimableDetail => Reclaimable is long r ? "≈ " + Format.Bytes(r) : "— (потрібен вимір)";
+    public string ReclaimableDetail => Reclaimable is long r ? "≈ " + Format.Bytes(r) : Loc.T("Profile.NeedsMeasure");
 
     public string FlagsText
     {
         get
         {
             var f = new List<string>();
-            if (IsOrphan) f.Add("сирота");
+            if (IsOrphan) f.Add(Loc.T("Profile.Flag.Orphan"));
             if (IsDisabled && AdStateText != null) f.Add(AdStateText);
-            if (IsStale) f.Add($">{StaleDays} дн.");
+            if (IsStale) f.Add(Loc.T("Profile.Flag.Stale", StaleDays));
             if (HasDiffDisk) f.Add("RW-diff");
-            if (FsDirty == true) f.Add("ФС: перевірити");
+            if (FsDirty == true) f.Add(Loc.T("Profile.Flag.FsDirty"));
             return string.Join(" · ", f);
         }
     }
@@ -342,9 +345,9 @@ public sealed class ProfileInfo : ObservableObject
     }
     public string FsText => FsDirty switch
     {
-        true => "потребує перевірки",
-        false => "без позначки помилок",
-        _ => "— (потрібен вимір)",
+        true => Loc.T("Profile.Fs.Dirty"),
+        false => Loc.T("Profile.Fs.Clean"),
+        _ => Loc.T("Profile.NeedsMeasure"),
     };
 
     /// <summary>Session hosts that hold this container over SMB (where a session can be messaged / logged off).</summary>
@@ -352,8 +355,24 @@ public sealed class ProfileInfo : ObservableObject
 
     private string? _busy;
     /// <summary>Text of an operation that is currently running on this profile.</summary>
-    public string? Busy { get => _busy; set { if (Set(ref _busy, value)) OnPropertyChanged(nameof(IsBusy)); } }
+    public string? Busy { get => _busy; set { _busyIsRefresh = false; if (Set(ref _busy, value)) OnPropertyChanged(nameof(IsBusy)); } }
     public bool IsBusy => _busy != null;
+
+    /// <summary>Busy was set by <see cref="BeginRefreshBusy"/> and not overwritten since (any other Busy assignment clears it).</summary>
+    private bool _busyIsRefresh;
+
+    /// <summary>Marks the row as being refreshed ("Оновлення…").</summary>
+    public void BeginRefreshBusy()
+    {
+        Busy = Loc.T("Profile.Busy.Refreshing");
+        _busyIsRefresh = true;
+    }
+
+    /// <summary>Clears Busy only if it still shows the refresh started by <see cref="BeginRefreshBusy"/>.</summary>
+    public void EndRefreshBusy()
+    {
+        if (_busyIsRefresh) Busy = null;
+    }
 
     private string _busyOp = "";
     /// <summary>Operation name shown above the progress bar (Аналіз / Очищення / Стиснення).</summary>
@@ -375,7 +394,7 @@ public sealed class ProfileInfo : ObservableObject
         BusyPercent = 0;
         BusyDetail = null;
         BusyElapsed = "0:00";
-        Busy = "Підготовка…";
+        Busy = Loc.T("Profile.Busy.Preparing");
     }
 
     public void ApplyProgress(FSLTool.Services.OpReporter.Snapshot s)
@@ -492,11 +511,12 @@ public sealed class ProfileInfo : ObservableObject
                         foreach (var l3 in l2.Children) rows.Add((l3.Path, l3.Size, l3, false));
                         // a big AppData\Local whose bulk is in small vendors / loose files
                         long rest = l2.Size - l2.Children.Sum(x => x.Size);
-                        if (rest >= thr) rows.Add((l2.Path + @"\(інше)", rest, l2, true));
+                        // display only: the row drills into l2 itself (IsPseudo), the text is never looked up
+                        if (rest >= thr) rows.Add((Loc.T("Profile.Folders.Other", l2.Path), rest, l2, true));
                     }
                 else rows.Add((c.Name, c.Size, c, false));
             }
-            if (FolderTree.FilesSize >= thr) rows.Add(("(файли в корені)", FolderTree.FilesSize, null, true));
+            if (FolderTree.FilesSize >= thr) rows.Add((Loc.T("Profile.Folders.RootFiles"), FolderTree.FilesSize, null, true));
             Crumbs = new();
         }
         else
@@ -505,7 +525,7 @@ public sealed class ProfileInfo : ObservableObject
             foreach (var c in node.Children) rows.Add((c.Name, c.Size, c, false));
             var crumbs = new List<FolderCrumb>();
             for (var n = node; n != null && n != FolderTree; n = n.Parent) crumbs.Insert(0, new FolderCrumb(n.Name, n));
-            crumbs.Insert(0, new FolderCrumb("Огляд", null));
+            crumbs.Insert(0, new FolderCrumb(Loc.T("Profile.Folders.Overview"), null));
             Crumbs = crumbs;
         }
 
@@ -514,7 +534,7 @@ public sealed class ProfileInfo : ObservableObject
         var list = rows.Select(r => new FolderUsage { Name = r.name, Size = r.size, Fraction = (double)r.size / max, Node = r.node, IsPseudo = r.pseudo }).ToList();
         long other = total - rows.Sum(r => r.size);
         if (other > 0)
-            list.Add(new FolderUsage { Name = $"Інше — дрібніше за {Format.Bytes(thr)}", Size = other, IsSummary = true });
+            list.Add(new FolderUsage { Name = Loc.T("Profile.Folders.Smaller", Format.Bytes(thr)), Size = other, IsSummary = true });
         TopFolders = list;
     }
 
@@ -523,9 +543,39 @@ public sealed class ProfileInfo : ObservableObject
     public string EstimateTotalText => Estimates == null ? "" : Format.Bytes(Estimates.Sum(e => e.Bytes));
 
     private string? _lastResult;
-    public string? LastResult { get => _lastResult; set => Set(ref _lastResult, value); }
+    /// <summary>Result of the last operation. Assigning it marks the result as NOT an error — use <see cref="SetError"/> for errors.</summary>
+    public string? LastResult
+    {
+        get => _lastResult;
+        set { Set(ref _lastResult, value); LastResultIsError = false; }
+    }
+
+    private bool _lastResultIsError;
+    /// <summary>The last operation failed (<see cref="LastResult"/> holds the error text).</summary>
+    public bool LastResultIsError { get => _lastResultIsError; private set => Set(ref _lastResultIsError, value); }
+
+    /// <summary>Stores an error as the last result (sets <see cref="LastResultIsError"/>).</summary>
+    public void SetError(string text)
+    {
+        LastResult = text;
+        LastResultIsError = true;
+    }
 
     public void RefreshState() { OnPropertyChanged(nameof(StateText)); OnPropertyChanged(nameof(IsMounted)); }
+
+    /// <summary>UI language changed: rebuild cached rows with translated text and re-read every bound property.</summary>
+    public void OnLanguageChanged()
+    {
+        if (FolderTree != null) OpenFolder(_currentFolder);
+        // new list instance so the "largest files" rows re-read their (translated) Folder text
+        if (_topFiles != null) { _topFiles = _topFiles.ToList(); }
+        // …and the "can be freed" rows their rule names
+        if (_estimates != null) _estimates = _estimates.ToList();
+        RefreshAllBindings();
+    }
+
+    /// <summary>Theme changed: colours of bars / chips come from converters — re-read every bound property.</summary>
+    public void OnThemeChanged() => RefreshAllBindings();
 
     public void Recalc()
     {
@@ -584,13 +634,13 @@ public sealed class ProfileInfo : ObservableObject
     public int? DaysToLimit { get; private set; }
 
     public string GrowthText => Growth is long g ? (g > 0 ? "+" + Format.Bytes(g) : "0") : "—";
-    public string GrowthSpanText => Growth == null ? "Історії ще немає — вона накопичується зі сканувань (одна точка на день)"
-        : $"Приріст файлу за {GrowthSpanDays} дн. (лише збільшення; падіння після стиснення не враховуються)";
+    public string GrowthSpanText => Growth == null ? Loc.T("Profile.Growth.NoHistory")
+        : Loc.T("Profile.Growth.Span", GrowthSpanDays);
     public string EtaText => DaysToLimit switch
     {
         null => "",
-        <= 0 => "межу досягнуто",
-        int d => $"межа ≈ через {d} дн.",
+        <= 0 => Loc.T("Profile.Eta.Reached"),
+        int d => Loc.T("Profile.Eta.Days", d),
     };
     public bool EtaSoon => DaysToLimit is <= 30;
 
@@ -643,7 +693,7 @@ public sealed class ProfileInfo : ObservableObject
     /// <summary>Points for the size sparkline in a fixed 300×48 box (the view scales the box uniformly).</summary>
     public System.Windows.Media.PointCollection? Spark { get => _spark; private set { if (Set(ref _spark, value)) OnPropertyChanged(nameof(SparkCaption)); } }
     public string SparkCaption => _history is { Count: >= 2 } h
-        ? $"{h[0].Day:dd.MM.yyyy} — {h[^1].Day:dd.MM.yyyy} · від {Format.Bytes(h.Min(x => x.Size))} до {Format.Bytes(h.Max(x => x.Size))}"
+        ? Loc.T("Profile.SparkCaption", h[0].Day, h[^1].Day, Format.Bytes(h.Min(x => x.Size)), Format.Bytes(h.Max(x => x.Size)))
         : "";
 
     private static System.Windows.Media.PointCollection? BuildSpark(IReadOnlyList<SizePoint>? h)

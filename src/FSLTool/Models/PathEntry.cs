@@ -31,11 +31,11 @@ public sealed class PathEntry(string path) : ObservableObject
         _ => Severity.Ok,
     };
 
-    public string SpaceText => Error != null ? "недоступно: " + Error
-        : HasSpace ? $"вільно {Format.Bytes(Free!.Value)} з {Format.Bytes(Total!.Value)}"
-        : "розмір сховища ще не визначено";
+    public string SpaceText => Error != null ? Loc.T("Path.Unavailable", Error)
+        : HasSpace ? Loc.T("Path.FreeOf", Format.Bytes(Free!.Value), Format.Bytes(Total!.Value))
+        : Loc.T("Path.Unknown");
 
-    public string ContainersText => ContainersCount == 0 ? "" : $"контейнери: {ContainersCount} · {Format.Bytes(ContainersBytes)}";
+    public string ContainersText => ContainersCount == 0 ? "" : Loc.T("Path.Containers", ContainersCount, Format.Bytes(ContainersBytes));
 
     /// <summary>Reads the free space of the volume (blocking; works for local paths and UNC shares).</summary>
     public (long? total, long? free, string? error) Query()

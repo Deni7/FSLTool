@@ -1,0 +1,13 @@
+{
+  "Lang.Native": "English",
+  "Lang.System": "System ({0})",
+  "Lang.Label": "Interface language",
+  "Lang.Tooltip": "Interface language for this Windows user. “System” follows the Windows display language, or English if there is no translation.",
+  "Common.Ok": "OK",
+  "Common.Cancel": "Cancel",
+  "Common.Close": "Close",
+  "Common.Yes": "Yes",
+  "Common.No": "No",
+  "Common.Error": "Error",
+  "App.ErrorTitle": "FSLTool — error"
+}

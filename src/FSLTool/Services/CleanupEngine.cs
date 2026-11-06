@@ -50,7 +50,7 @@ public sealed class CleanupEngine
     { _rules = rules; _dryRun = dryRun; _progress = progress ?? OpReporter.None; _ct = ct; }
 
     private void Tick() =>
-        _progress.Report(_fraction, $"{_where} · {(_dryRun ? "знайдено" : "видалено")} {_liveFiles:N0} файлів, {Format.Bytes(_liveBytes)}");
+        _progress.Report(_fraction, Loc.T(_dryRun ? "Ops.Cleanup.ProgressFound" : "Ops.Cleanup.ProgressDeleted", _where, _liveFiles, Format.Bytes(_liveBytes)));
 
     /// <summary>Folder inside the volume that holds the profile: "Profile" or "ODFC" (or the volume root).</summary>
     public static string ContainerRoot(string volume, ContainerType type)
@@ -78,7 +78,7 @@ public sealed class CleanupEngine
                 var pattern = rule.Paths[pi];
                 // progress: rule index + share of its paths done
                 _fraction = (ri + (double)pi / Math.Max(1, rule.Paths.Count)) / Math.Max(1, active.Count);
-                _where = $"{rule.Name} ({ri + 1}/{active.Count})";
+                _where = $"{rule.DisplayName} ({ri + 1}/{active.Count})";
                 Tick();
                 string baseDir = root, rel = pattern;
                 if (pattern.StartsWith("$volume", StringComparison.OrdinalIgnoreCase))
@@ -96,11 +96,11 @@ public sealed class CleanupEngine
             stats.Bytes += rs.Bytes; stats.Files += rs.Files; stats.Folders += rs.Folders; stats.Errors += rs.Errors;
             stats.PerRule.Add(new RuleEstimate { RuleName = rule.Name, Bytes = rs.Bytes, Files = rs.Files });
             if (!_dryRun && rs.Files + rs.Folders > 0)
-                Log.Info($"  правило '{rule.Name}': {rs.Files} файлів, {rs.Folders} папок, {Format.Bytes(rs.Bytes)}" +
-                         (rs.Errors > 0 ? $", помилок: {rs.Errors}" : ""));
+                Log.Info(Loc.T(rs.Errors > 0 ? "Ops.Cleanup.RuleLogErrors" : "Ops.Cleanup.RuleLog",
+                               rule.DisplayName, rs.Files, rs.Folders, Format.Bytes(rs.Bytes), rs.Errors));
         }
         _fraction = 1;
-        _where = "Готово";
+        _where = Loc.T("Ops.Cleanup.Done");
         Tick();
         return stats;
     }
@@ -245,7 +245,7 @@ public sealed class CleanupEngine
         catch (Exception ex)
         {
             s.Errors++;
-            if (s.Errors <= 20) Log.Warn($"    не видалено {e.FullName}: {ex.Message}");
+            if (s.Errors <= 20) Log.Warn(Loc.T("Ops.Cleanup.NotDeleted", e.FullName, ex.Message));
             return false;
         }
         if (e is DirectoryInfo) s.Folders++;

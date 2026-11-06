@@ -39,7 +39,7 @@ public static class ProfileOperations
             if (p.Handles.Count == 0 || p.State != MountState.InUseSmb) p.SetHandles(fast);
             p.State = MountState.InUseSmb;
             var who = string.Join(", ", p.Handles.Select(h => (h.ClientComputer + " " + h.ClientUser).Trim()).Distinct());
-            throw new InvalidOperationException($"Контейнер використовується ({who}).");
+            throw new InvalidOperationException(Loc.T("Ops.InUse", who));
         }
         if (st == MountState.Free)
         {
@@ -47,38 +47,38 @@ public static class ProfileOperations
             return;
         }
         p.State = st;
-        throw new InvalidOperationException("Контейнер зайнятий (" + p.StateText + ").");
+        throw new InvalidOperationException(Loc.T("Ops.Busy", p.StateText));
     }
 
     /// <summary>Read-only attach: real used/free space, largest folders, and what the rules would free.</summary>
     public static void Analyze(ProfileInfo p, CleanupRuleSet rules, OpReporter r, CancellationToken ct)
     {
-        r.Stage("Перевірка стану", 0, 0.02);
+        r.Stage(Loc.T("Ops.Stage.CheckState"), 0, 0.02);
         EnsureFree(p);
-        r.Stage("Підключення диска (лише читання)", 0.02, 0.06);
+        r.Stage(Loc.T("Ops.Stage.AttachReadOnly"), 0.02, 0.06);
         using var disk = AttachedDisk.Attach(p.FilePath, readOnly: true, ct);
         var (total, free) = VolumeHelper.GetSpace(disk.VolumePath);
         p.VolumeTotal = total;
         p.VolumeUsed = total - free;
         p.AnalyzedAt = DateTime.Now;
         p.FsDirty = VolumeHelper.IsDirty(disk.VolumePath);
-        if (p.FsDirty == true) Log.Warn($"Аналіз {p.FilePath}: файлова система позначена як «брудна» — потрібна перевірка");
+        if (p.FsDirty == true) Log.Warn(Loc.T("Ops.Analyze.DirtyWarn", p.FilePath));
 
-        r.Stage("Аналіз папок", 0.06, 0.70);
+        r.Stage(Loc.T("Ops.Stage.AnalyzeFolders"), 0.06, 0.70);
         var (tree, files) = BuildFolderTree(CleanupEngine.ContainerRoot(disk.VolumePath, p.ContainerType), total - free, r, ct);
         p.SetFolderTree(tree);
         p.TopFiles = files;
 
-        r.Stage("Оцінка правил очищення", 0.70, 0.98);
+        r.Stage(Loc.T("Ops.Stage.EstimateRules"), 0.70, 0.98);
         var est = new CleanupEngine(rules, dryRun: true, r, ct).Run(disk.VolumePath, p.ContainerType);
         p.Estimates = est.PerRule.Where(e => e.Bytes > 0 || e.Files > 0).OrderByDescending(e => e.Bytes).ToList();
 
-        r.Stage("Відключення диска", 0.98, 1);
+        r.Stage(Loc.T("Ops.Stage.Detach"), 0.98, 1);
         disk.Detach();
         r.Report(1);
-        p.LastResult = $"Аналіз: зайнято {Format.Bytes(total - free)} з {Format.Bytes(total)}, можна звільнити ≈ {Format.Bytes(est.Bytes)}" +
-                       (p.FsDirty == true ? ". Файлова система потребує перевірки — натисніть «Перевірити ФС»." : "");
-        Log.Info($"Аналіз {p.FilePath}: used {Format.Bytes(total - free)}/{Format.Bytes(total)}, правила звільнять ≈ {Format.Bytes(est.Bytes)} ({est.Files} файлів)");
+        p.LastResult = Loc.T(p.FsDirty == true ? "Ops.Analyze.ResultDirty" : "Ops.Analyze.Result",
+                             Format.Bytes(total - free), Format.Bytes(total), Format.Bytes(est.Bytes));
+        Log.Info(Loc.T("Ops.Analyze.Log", p.FilePath, Format.Bytes(total - free), Format.Bytes(total), Format.Bytes(est.Bytes), est.Files));
     }
 
     /// <summary>
@@ -87,19 +87,19 @@ public static class ProfileOperations
     /// </summary>
     public static void Measure(ProfileInfo p, OpReporter r, CancellationToken ct)
     {
-        r.Stage("Перевірка стану", 0, 0.1);
+        r.Stage(Loc.T("Ops.Stage.CheckState"), 0, 0.1);
         EnsureFree(p);
-        r.Stage("Підключення диска (лише читання)", 0.1, 0.8);
+        r.Stage(Loc.T("Ops.Stage.AttachReadOnly"), 0.1, 0.8);
         using var disk = AttachedDisk.Attach(p.FilePath, readOnly: true, ct);
         var (total, free) = VolumeHelper.GetSpace(disk.VolumePath);
         p.VolumeTotal = total;
         p.VolumeUsed = total - free;
         p.AnalyzedAt = DateTime.Now;
         p.FsDirty = VolumeHelper.IsDirty(disk.VolumePath);
-        r.Stage("Відключення диска", 0.8, 1);
+        r.Stage(Loc.T("Ops.Stage.Detach"), 0.8, 1);
         disk.Detach();
         r.Report(1);
-        p.LastResult = $"Виміряно: зайнято {Format.Bytes(total - free)} з {Format.Bytes(total)}";
+        p.LastResult = Loc.T("Ops.Measure.Result", Format.Bytes(total - free), Format.Bytes(total));
     }
 
     /// <summary>Applies cleanup rules (RW attach), re-trims and optionally compacts.</summary>
@@ -108,33 +108,33 @@ public static class ProfileOperations
         // weights: cleanup dominates without compaction; with it, compaction is the long part
         double cleanEnd = compact ? 0.50 : 0.90, trimEnd = compact ? 0.56 : 0.97;
 
-        r.Stage("Перевірка стану", 0, 0.01);
+        r.Stage(Loc.T("Ops.Stage.CheckState"), 0, 0.01);
         EnsureFree(p);
         long before = SafeLength(p.FilePath);
-        Log.Info($"Очищення {p.FilePath} ({p.DisplayUser}), розмір файлу {Format.Bytes(before)}");
+        Log.Info(Loc.T("Ops.Clean.LogStart", p.FilePath, p.DisplayUser, Format.Bytes(before)));
 
         CleanupStats stats;
-        r.Stage("Підключення диска", 0.01, 0.04);
+        r.Stage(Loc.T("Ops.Stage.Attach"), 0.01, 0.04);
         using (var disk = AttachedDisk.Attach(p.FilePath, readOnly: false, ct))
         {
             var (_, freeBefore) = VolumeHelper.GetSpace(disk.VolumePath);
-            r.Stage("Видалення за правилами", 0.04, cleanEnd);
+            r.Stage(Loc.T("Ops.Stage.DeleteByRules"), 0.04, cleanEnd);
             stats = new CleanupEngine(rules, dryRun: false, r, ct).Run(disk.VolumePath, p.ContainerType);
 
-            r.Stage("ReTrim тому", cleanEnd, trimEnd);
+            r.Stage(Loc.T("Ops.Stage.ReTrim"), cleanEnd, trimEnd);
             VolumeHelper.Flush(disk.VolumePath);
             ReTrim(disk.VolumePath);
             var (total, freeAfter) = VolumeHelper.GetSpace(disk.VolumePath);
             p.VolumeTotal = total;
             p.VolumeUsed = total - freeAfter;
             p.AnalyzedAt = DateTime.Now;
-            Log.Info($"  видалено {stats.Files} файлів / {stats.Folders} папок, {Format.Bytes(stats.Bytes)}; вільно в томі: {Format.Bytes(freeBefore)} → {Format.Bytes(freeAfter)}");
-            r.Stage("Відключення диска", trimEnd, trimEnd + 0.02);
+            Log.Info(Loc.T("Ops.Clean.LogDeleted", stats.Files, stats.Folders, Format.Bytes(stats.Bytes), Format.Bytes(freeBefore), Format.Bytes(freeAfter)));
+            r.Stage(Loc.T("Ops.Stage.Detach"), trimEnd, trimEnd + 0.02);
         }
 
         if (compact)
         {
-            r.Stage("Стиснення VHDX", trimEnd + 0.02, 1);
+            r.Stage(Loc.T("Ops.Stage.Compact"), trimEnd + 0.02, 1);
             VirtualDisk.Compact(p.FilePath, (cur, of) => r.Report((double)cur / of, $"{cur * 100 / Math.Max(1, of)} %"), ct);
         }
 
@@ -144,10 +144,9 @@ public static class ProfileOperations
         p.Estimates = null;
         p.TopFiles = null;
         p.SetFolderTree(null);   // sizes changed — re-analyse to browse again
-        p.LastResult = $"Видалено {stats.Files} файлів ({Format.Bytes(stats.Bytes)})" +
-                       (stats.Errors > 0 ? $", помилок {stats.Errors}" : "") +
-                       $". Файл: {Format.Bytes(before)} → {Format.Bytes(after)}";
-        Log.Info($"  файл контейнера: {Format.Bytes(before)} → {Format.Bytes(after)} (−{Format.Bytes(before - after)})");
+        p.LastResult = Loc.T(stats.Errors > 0 ? "Ops.Clean.ResultErrors" : "Ops.Clean.Result",
+                             stats.Files, Format.Bytes(stats.Bytes), Format.Bytes(before), Format.Bytes(after), stats.Errors);
+        Log.Info(Loc.T("Ops.Clean.LogFile", Format.Bytes(before), Format.Bytes(after), Format.Bytes(before - after)));
     }
 
     /// <summary>
@@ -160,48 +159,48 @@ public static class ProfileOperations
         relPath = relPath.Trim('\\');
         if (FolderNode.IsProtected(relPath) || relPath.Split('\\').Any(s => s is "." or "..") ||
             relPath.StartsWith("$volume", StringComparison.OrdinalIgnoreCase) || relPath.IndexOfAny(new[] { '*', '?' }) >= 0)
-            throw new InvalidOperationException($"Папку «{relPath}» видаляти заборонено.");
+            throw new InvalidOperationException(Loc.T("Ops.DeleteFolder.Forbidden", relPath));
 
         double delEnd = compact ? 0.45 : 0.90, trimEnd = compact ? 0.52 : 0.97;
-        r.Stage("Перевірка стану", 0, 0.01);
+        r.Stage(Loc.T("Ops.Stage.CheckState"), 0, 0.01);
         EnsureFree(p);
         long before = SafeLength(p.FilePath);
 
         CleanupStats stats;
         bool leftovers;
-        r.Stage("Підключення диска", 0.01, 0.04);
+        r.Stage(Loc.T("Ops.Stage.Attach"), 0.01, 0.04);
         using (var disk = AttachedDisk.Attach(p.FilePath, readOnly: false, ct))
         {
             var root = CleanupEngine.ContainerRoot(disk.VolumePath, p.ContainerType);
             var full = Path.Combine(root, relPath);
             var di = new DirectoryInfo(full);
-            if (!di.Exists) throw new InvalidOperationException($"Папки «{relPath}» у контейнері вже немає.");
+            if (!di.Exists) throw new InvalidOperationException(Loc.T("Ops.DeleteFolder.Gone", relPath));
             if (di.Attributes.HasFlag(FileAttributes.ReparsePoint))
-                throw new InvalidOperationException($"«{relPath}» — це посилання (junction), а не папка.");
+                throw new InvalidOperationException(Loc.T("Ops.DeleteFolder.IsLink", relPath));
 
-            Log.Warn($"Видалення папки «{relPath}» з контейнера {p.FilePath} ({p.DisplayUser})");
+            Log.Warn(Loc.T("Ops.DeleteFolder.LogStart", relPath, p.FilePath, p.DisplayUser));
             var oneRule = new CleanupRuleSet
             {
                 GlobalExclude = rules.GlobalExclude,
-                Rules = { new CleanupRule { Name = $"Папка {relPath}", Paths = { relPath }, Action = CleanupAction.DeleteFolder } },
+                Rules = { new CleanupRule { Name = Loc.T("Ops.Rule.Folder", relPath), Paths = { relPath }, Action = CleanupAction.DeleteFolder } },
             };
-            r.Stage("Видалення папки", 0.04, delEnd);
+            r.Stage(Loc.T("Ops.Stage.DeleteFolder"), 0.04, delEnd);
             stats = new CleanupEngine(oneRule, dryRun: false, r, ct).Run(disk.VolumePath, p.ContainerType);
             leftovers = Directory.Exists(full);
 
-            r.Stage("ReTrim тому", delEnd, trimEnd);
+            r.Stage(Loc.T("Ops.Stage.ReTrim"), delEnd, trimEnd);
             VolumeHelper.Flush(disk.VolumePath);
             ReTrim(disk.VolumePath);
             var (total, free) = VolumeHelper.GetSpace(disk.VolumePath);
             p.VolumeTotal = total;
             p.VolumeUsed = total - free;
             p.AnalyzedAt = DateTime.Now;
-            r.Stage("Відключення диска", trimEnd, trimEnd + 0.02);
+            r.Stage(Loc.T("Ops.Stage.Detach"), trimEnd, trimEnd + 0.02);
         }
 
         if (compact)
         {
-            r.Stage("Стиснення VHDX", trimEnd + 0.02, 1);
+            r.Stage(Loc.T("Ops.Stage.Compact"), trimEnd + 0.02, 1);
             VirtualDisk.Compact(p.FilePath, (cur, of) => r.Report((double)cur / of, $"{cur * 100 / Math.Max(1, of)} %"), ct);
         }
 
@@ -210,10 +209,9 @@ public static class ProfileOperations
         p.LastWrite = File.GetLastWriteTime(p.FilePath);
         if (!leftovers) p.RemoveFolder(relPath);
         p.Estimates = null;
-        p.LastResult = $"Папку «{relPath}» видалено: {stats.Files:N0} файлів, {Format.Bytes(stats.Bytes)}" +
-                       (leftovers ? $" (частину залишено: виключення або помилки — {stats.Errors})" : "") +
-                       $". Файл: {Format.Bytes(before)} → {Format.Bytes(after)}";
-        Log.Info($"  папку «{relPath}»: {stats.Files} файлів, {Format.Bytes(stats.Bytes)}, помилок {stats.Errors}; файл {Format.Bytes(before)} → {Format.Bytes(after)}");
+        p.LastResult = Loc.T(leftovers ? "Ops.DeleteFolder.ResultPartial" : "Ops.DeleteFolder.Result",
+                             relPath, stats.Files, Format.Bytes(stats.Bytes), Format.Bytes(before), Format.Bytes(after), stats.Errors);
+        Log.Info(Loc.T("Ops.DeleteFolder.Log", relPath, stats.Files, Format.Bytes(stats.Bytes), stats.Errors, Format.Bytes(before), Format.Bytes(after)));
     }
 
     /// <summary>
@@ -223,62 +221,60 @@ public static class ProfileOperations
     /// </summary>
     public static void Grow(ProfileInfo p, long newSize, OpReporter r, CancellationToken ct)
     {
-        r.Stage("Перевірка стану", 0, 0.03);
+        r.Stage(Loc.T("Ops.Stage.CheckState"), 0, 0.03);
         EnsureFree(p);
         long current = VhdHeader.TryReadVirtualSize(p.FilePath) ?? p.VirtualSize ?? 0;
-        if (current <= 0) throw new InvalidOperationException("Не вдалося прочитати поточний максимальний розмір із заголовка.");
+        if (current <= 0) throw new InvalidOperationException(Loc.T("Ops.Grow.NoHeader"));
         newSize = (newSize + (1L << 20) - 1) & ~((1L << 20) - 1);   // whole MB
         if (newSize <= current)
-            throw new OperationSkippedException($"поточний максимум {Format.Bytes(current)} уже не менший за {Format.Bytes(newSize)}.");
+            throw new OperationSkippedException(Loc.T("Ops.Grow.NotLarger", Format.Bytes(current), Format.Bytes(newSize)));
         if (p.DiskFormat == "VHD" && newSize > 2040L << 30)
-            throw new InvalidOperationException("Формат VHD обмежений 2040 GB.");
+            throw new InvalidOperationException(Loc.T("Ops.Grow.VhdLimit"));
 
-        Log.Warn($"Збільшення {p.FilePath} ({p.DisplayUser}): {Format.Bytes(current)} → {Format.Bytes(newSize)}");
-        r.Stage("Збільшення віртуального диска", 0.03, 0.30);
+        Log.Warn(Loc.T("Ops.Grow.LogStart", p.FilePath, p.DisplayUser, Format.Bytes(current), Format.Bytes(newSize)));
+        r.Stage(Loc.T("Ops.Stage.GrowDisk"), 0.03, 0.30);
         VirtualDisk.Grow(p.FilePath, (ulong)newSize);
         p.VirtualSize = newSize;
 
-        r.Stage("Підключення диска", 0.30, 0.45);
+        r.Stage(Loc.T("Ops.Stage.Attach"), 0.30, 0.45);
         using (var disk = AttachedDisk.Attach(p.FilePath, readOnly: false, ct))
         {
-            r.Stage("Розширення розділу", 0.45, 0.90);
+            r.Stage(Loc.T("Ops.Stage.ExtendPartition"), 0.45, 0.90);
             (ulong before, ulong after) part;
             try { part = StorageWmi.ExtendPartition(disk.DiskNumber, disk.VolumePath); }
             catch (Exception ex)
             {
-                throw new InvalidOperationException(
-                    $"VHDX збільшено до {Format.Bytes(newSize)}, але розділ не розширено: {ex.Message}. " +
-                    "Дані цілі; повторіть операцію або розширте розділ вручну (diskpart → extend).", ex);
+                throw new InvalidOperationException(Loc.T("Ops.Grow.ExtendFailed", Format.Bytes(newSize), ex.Message), ex);
             }
             VolumeHelper.Flush(disk.VolumePath);
             var (total, free) = VolumeHelper.GetSpace(disk.VolumePath);
             p.VolumeTotal = total;
             p.VolumeUsed = total - free;
             p.AnalyzedAt = DateTime.Now;
-            Log.Info($"  розділ: {Format.Bytes((long)part.before)} → {Format.Bytes((long)part.after)}; том {Format.Bytes(total)}, вільно {Format.Bytes(free)}");
-            r.Stage("Відключення диска", 0.90, 1);
+            Log.Info(Loc.T("Ops.Grow.LogPartition", Format.Bytes((long)part.before), Format.Bytes((long)part.after), Format.Bytes(total), Format.Bytes(free)));
+            r.Stage(Loc.T("Ops.Stage.Detach"), 0.90, 1);
         }
         p.FileSize = SafeLength(p.FilePath);
         p.LastWrite = File.GetLastWriteTime(p.FilePath);
         r.Report(1);
-        p.LastResult = $"Максимальний розмір: {Format.Bytes(current)} → {Format.Bytes(newSize)}, том {Format.Bytes(p.VolumeTotal ?? 0)}";
+        p.LastResult = Loc.T("Ops.Grow.Result", Format.Bytes(current), Format.Bytes(newSize), Format.Bytes(p.VolumeTotal ?? 0));
     }
 
     /// <summary>Offline check and fix of the NTFS volume inside the container (chkdsk /f equivalent).</summary>
     public static void RepairFs(ProfileInfo p, OpReporter r, CancellationToken ct)
     {
-        r.Stage("Перевірка стану", 0, 0.03);
+        r.Stage(Loc.T("Ops.Stage.CheckState"), 0, 0.03);
         EnsureFree(p);
-        r.Stage("Підключення диска", 0.03, 0.10);
+        r.Stage(Loc.T("Ops.Stage.Attach"), 0.03, 0.10);
         using var disk = AttachedDisk.Attach(p.FilePath, readOnly: false, ct);
         bool? dirtyBefore = VolumeHelper.IsDirty(disk.VolumePath);
-        Log.Warn($"Перевірка ФС {p.FilePath} ({p.DisplayUser}), dirty = {dirtyBefore?.ToString() ?? "?"}");
+        Log.Warn(Loc.T("Ops.RepairFs.LogStart", p.FilePath, p.DisplayUser, dirtyBefore?.ToString() ?? "?"));
 
-        r.Stage("Перевірка й виправлення (chkdsk)", 0.10, 0.92);
+        r.Stage(Loc.T("Ops.Stage.Chkdsk"), 0.10, 0.92);
         var (result, output) = StorageWmi.Repair(disk.VolumePath);
         ct.ThrowIfCancellationRequested();
 
-        r.Stage("Відключення диска", 0.92, 1);
+        r.Stage(Loc.T("Ops.Stage.Detach"), 0.92, 1);
         p.FsDirty = VolumeHelper.IsDirty(disk.VolumePath);
         var (total, free) = VolumeHelper.GetSpace(disk.VolumePath);
         p.VolumeTotal = total;
@@ -291,12 +287,12 @@ public static class ProfileOperations
 
         var text = result switch
         {
-            StorageWmi.RepairResult.NoErrors => "помилок не знайдено",
-            StorageWmi.RepairResult.Fixed => "помилки знайдено й виправлено",
-            _ => $"результат {output} — перегляньте журнал подій (Application, джерело Chkdsk)",
+            StorageWmi.RepairResult.NoErrors => Loc.T("Ops.RepairFs.NoErrors"),
+            StorageWmi.RepairResult.Fixed => Loc.T("Ops.RepairFs.Fixed"),
+            _ => Loc.T("Ops.RepairFs.Other", output),
         };
-        p.LastResult = $"Перевірка ФС: {text}" + (p.FsDirty == true ? ". Том досі позначено як «брудний»." : ".");
-        Log.Info($"  перевірка ФС: {text}, dirty після = {p.FsDirty?.ToString() ?? "?"}");
+        p.LastResult = Loc.T(p.FsDirty == true ? "Ops.RepairFs.ResultDirty" : "Ops.RepairFs.Result", text);
+        Log.Info(Loc.T("Ops.RepairFs.Log", text, p.FsDirty?.ToString() ?? "?"));
     }
 
     /// <summary>
@@ -310,46 +306,46 @@ public static class ProfileOperations
         var name = Path.GetFileName(relPath);
         if (name.Length == 0 || relPath.Split('\\').Any(s => s is "." or "..") || relPath.IndexOfAny(new[] { '*', '?' }) >= 0 ||
             relPath.StartsWith("$volume", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException($"Файл «{relPath}» видаляти заборонено.");
+            throw new InvalidOperationException(Loc.T("Ops.DeleteFile.Forbidden", relPath));
         if (rules.GlobalExclude.Any(m => System.IO.Enumeration.FileSystemName.MatchesSimpleExpression(m, name)))
-            throw new InvalidOperationException($"«{name}» захищено правилом globalExclude — такі файли не видаляються.");
+            throw new InvalidOperationException(Loc.T("Ops.DeleteFile.Protected", name));
 
         double delEnd = compact ? 0.10 : 0.80, trimEnd = compact ? 0.20 : 0.95;
-        r.Stage("Перевірка стану", 0, 0.01);
+        r.Stage(Loc.T("Ops.Stage.CheckState"), 0, 0.01);
         EnsureFree(p);
         long before = SafeLength(p.FilePath);
 
         long size;
         CleanupStats stats;
-        r.Stage("Підключення диска", 0.01, 0.04);
+        r.Stage(Loc.T("Ops.Stage.Attach"), 0.01, 0.04);
         using (var disk = AttachedDisk.Attach(p.FilePath, readOnly: false, ct))
         {
             var root = CleanupEngine.ContainerRoot(disk.VolumePath, p.ContainerType);
             var fi = new FileInfo(Path.Combine(root, relPath));
-            if (!fi.Exists) throw new InvalidOperationException($"Файлу «{relPath}» у контейнері вже немає.");
+            if (!fi.Exists) throw new InvalidOperationException(Loc.T("Ops.DeleteFile.Gone", relPath));
             if (fi.Attributes.HasFlag(FileAttributes.ReparsePoint))
-                throw new InvalidOperationException($"«{relPath}» — це посилання, а не файл.");
+                throw new InvalidOperationException(Loc.T("Ops.DeleteFile.IsLink", relPath));
             size = fi.Length;
 
-            Log.Warn($"Видалення файлу «{relPath}» ({Format.Bytes(size)}) з контейнера {p.FilePath} ({p.DisplayUser})");
-            r.Stage("Видалення файлу", 0.04, delEnd);
+            Log.Warn(Loc.T("Ops.DeleteFile.LogStart", relPath, Format.Bytes(size), p.FilePath, p.DisplayUser));
+            r.Stage(Loc.T("Ops.Stage.DeleteFile"), 0.04, delEnd);
             stats = DeleteOneFile(disk.VolumePath, p.ContainerType, relPath, rules, r, ct);
             if (File.Exists(fi.FullName))
-                throw new InvalidOperationException($"Файл «{relPath}» не видалено" + (stats.Errors > 0 ? " (помилка доступу або файл зайнятий)." : "."));
+                throw new InvalidOperationException(Loc.T(stats.Errors > 0 ? "Ops.DeleteFile.NotDeletedAccess" : "Ops.DeleteFile.NotDeleted", relPath));
 
-            r.Stage("ReTrim тому", delEnd, trimEnd);
+            r.Stage(Loc.T("Ops.Stage.ReTrim"), delEnd, trimEnd);
             VolumeHelper.Flush(disk.VolumePath);
             ReTrim(disk.VolumePath);
             var (total, free) = VolumeHelper.GetSpace(disk.VolumePath);
             p.VolumeTotal = total;
             p.VolumeUsed = total - free;
             p.AnalyzedAt = DateTime.Now;
-            r.Stage("Відключення диска", trimEnd, trimEnd + 0.02);
+            r.Stage(Loc.T("Ops.Stage.Detach"), trimEnd, trimEnd + 0.02);
         }
 
         if (compact)
         {
-            r.Stage("Стиснення VHDX", trimEnd + 0.02, 1);
+            r.Stage(Loc.T("Ops.Stage.Compact"), trimEnd + 0.02, 1);
             VirtualDisk.Compact(p.FilePath, (cur, of) => r.Report((double)cur / of, $"{cur * 100 / Math.Max(1, of)} %"), ct);
         }
 
@@ -358,8 +354,8 @@ public static class ProfileOperations
         p.LastWrite = File.GetLastWriteTime(p.FilePath);
         p.RemoveFile(relPath, size);
         p.Estimates = null;   // the file may have been counted by a rule
-        p.LastResult = $"Файл «{name}» видалено ({Format.Bytes(size)}). Файл контейнера: {Format.Bytes(before)} → {Format.Bytes(after)}";
-        Log.Info($"  файл «{relPath}»: {Format.Bytes(size)}; файл контейнера {Format.Bytes(before)} → {Format.Bytes(after)}");
+        p.LastResult = Loc.T("Ops.DeleteFile.Result", name, Format.Bytes(size), Format.Bytes(before), Format.Bytes(after));
+        Log.Info(Loc.T("Ops.DeleteFile.Log", relPath, Format.Bytes(size), Format.Bytes(before), Format.Bytes(after)));
     }
 
     /// <summary>
@@ -377,27 +373,27 @@ public static class ProfileOperations
         if (folder.Length > 0) folderPattern = folder;
         else if (!root.TrimEnd('\\').Equals(volumePath.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
             folderPattern = @"$volume\" + Path.GetFileName(root.TrimEnd('\\'));
-        else throw new InvalidOperationException("Файли в корені тому цим способом не видаляються.");
+        else throw new InvalidOperationException(Loc.T("Ops.DeleteFile.RootNotSupported"));
 
         var oneRule = new CleanupRuleSet
         {
             GlobalExclude = rules.GlobalExclude,
-            Rules = { new CleanupRule { Name = $"Файл {relPath}", Paths = { folderPattern }, Action = CleanupAction.DeleteFiles, Include = { name } } },
+            Rules = { new CleanupRule { Name = Loc.T("Ops.Rule.File", relPath), Paths = { folderPattern }, Action = CleanupAction.DeleteFiles, Include = { name } } },
         };
         return new CleanupEngine(oneRule, dryRun: false, r, ct).Run(volumePath, type);
     }
 
     public static void Compact(ProfileInfo p, OpReporter r, CancellationToken ct)
     {
-        r.Stage("Перевірка стану", 0, 0.02);
+        r.Stage(Loc.T("Ops.Stage.CheckState"), 0, 0.02);
         EnsureFree(p);
         long before = SafeLength(p.FilePath);
-        Log.Info($"Стиснення {p.FilePath}, {Format.Bytes(before)}");
-        r.Stage("Стиснення VHDX", 0.02, 1);
+        Log.Info(Loc.T("Ops.Compact.LogStart", p.FilePath, Format.Bytes(before)));
+        r.Stage(Loc.T("Ops.Stage.Compact"), 0.02, 1);
         VirtualDisk.Compact(p.FilePath, (cur, of) => r.Report((double)cur / of, $"{cur * 100 / Math.Max(1, of)} %"), ct);
         long after = SafeLength(p.FilePath);
         p.FileSize = after;
-        p.LastResult = $"Стиснуто: {Format.Bytes(before)} → {Format.Bytes(after)}";
+        p.LastResult = Loc.T("Ops.Compact.Result", Format.Bytes(before), Format.Bytes(after));
         Log.Info($"  {Format.Bytes(before)} → {Format.Bytes(after)} (−{Format.Bytes(before - after)})");
     }
 
@@ -412,23 +408,22 @@ public static class ProfileOperations
     /// </summary>
     public static void Delete(ProfileInfo p, int staleDays, OpReporter r, CancellationToken ct)
     {
-        r.Stage("Перевірка стану", 0, 0.05);
+        r.Stage(Loc.T("Ops.Stage.CheckState"), 0, 0.05);
         EnsureFree(p);
         var fi = new FileInfo(p.FilePath);
-        if (!fi.Exists) throw new InvalidOperationException("Файл контейнера вже не існує.");
+        if (!fi.Exists) throw new InvalidOperationException(Loc.T("Ops.Delete.FileGone"));
         var age = (DateTime.Now - fi.LastWriteTime).TotalDays;
         string reason;
-        if (age > staleDays) reason = $"змінювався {age:0} дн. тому";
+        if (age > staleDays) reason = Loc.T("Ops.Delete.ReasonStale", age);
         else
         {
             p.LastWrite = fi.LastWriteTime;
             // not stale — allowed only for an account that is disabled / expired in AD; ask AD again right now
-            r.Stage("Перевірка облікового запису в AD", 0.03, 0.05);
+            r.Stage(Loc.T("Ops.Stage.CheckAd"), 0.03, 0.05);
             AdService.Resolve(new[] { p }, ct, force: true);
             if (!p.IsDisabled)
-                throw new OperationSkippedException($"контейнер змінювався {age:0} дн. тому, а обліковий запис в AD не вимкнений " +
-                                                    "(або стан в AD не вдалося перевірити).");
-            reason = $"{p.AdStateText}, змінювався {age:0} дн. тому";
+                throw new OperationSkippedException(Loc.T("Ops.Delete.NotDisabled", age));
+            reason = Loc.T("Ops.Delete.ReasonDisabled", p.AdStateText, age);
         }
 
         var dir = fi.Directory!;
@@ -446,20 +441,21 @@ public static class ProfileOperations
         long size = fi.Length;
         if (folderIsUserFolder && others.Count == 0)
         {
-            r.Stage("Видалення папки профілю", 0.05, 1);
-            Log.Warn($"ВИДАЛЕННЯ профілю {p.DisplayUser}: папка {dir.FullName} ({Format.Bytes(size)}, {reason})");
+            r.Stage(Loc.T("Ops.Stage.DeleteProfileFolder"), 0.05, 1);
+            Log.Warn(Loc.T("Ops.Delete.LogFolder", p.DisplayUser, dir.FullName, Format.Bytes(size), reason));
             DeleteTree(dir, r, ct);
-            p.LastResult = $"Видалено папку {dir.Name}";
+            p.LastResult = Loc.T("Ops.Delete.ResultFolder", dir.Name);
         }
         else
         {
-            r.Stage("Видалення контейнера", 0.05, 1);
+            r.Stage(Loc.T("Ops.Stage.DeleteContainer"), 0.05, 1);
             var sidecars = dir.EnumerateFiles(fi.Name + ".*").ToList();   // Profile_x.VHDX.lock / .meta / …
-            Log.Warn($"ВИДАЛЕННЯ контейнера {fi.FullName} ({Format.Bytes(size)}, {reason})" +
-                     (others.Count > 0 ? $"; папку збережено — в ній є {string.Join(", ", others)}" : "; файл лежить у корені — папку не чіпаємо"));
+            Log.Warn(others.Count > 0
+                ? Loc.T("Ops.Delete.LogContainerFolderKept", fi.FullName, Format.Bytes(size), reason, string.Join(", ", others))
+                : Loc.T("Ops.Delete.LogContainerInRoot", fi.FullName, Format.Bytes(size), reason));
             DeleteFile(fi);
             foreach (var s in sidecars) DeleteFile(s);
-            p.LastResult = others.Count > 0 ? $"Видалено файл; папку збережено ({string.Join(", ", others)})" : "Видалено файл";
+            p.LastResult = others.Count > 0 ? Loc.T("Ops.Delete.ResultFileFolderKept", string.Join(", ", others)) : Loc.T("Ops.Delete.ResultFile");
         }
         r.Report(1);
         p.IsDeleted = true;
@@ -515,23 +511,22 @@ public static class ProfileOperations
         var smb = SmbService.GetOpenFiles().Where(h => h.LocalPath.Equals(local, StringComparison.OrdinalIgnoreCase)).ToList();
         foreach (var h in smb)
         {
-            Log.Warn($"Примусове закриття SMB-дескриптора {h.FileId}: {h.LocalPath} ({h.ClientComputer} / {h.ClientUser})");
+            Log.Warn(Loc.T("Ops.Unmount.LogForceClose", h.FileId, h.LocalPath, h.ClientComputer, h.ClientUser));
             SmbService.ForceClose(h);
         }
         if (smb.Count == 0 && VirtualDisk.IsAttachedLocally(p.FilePath))
         {
-            Log.Warn($"Локальне відключення {p.FilePath}");
+            Log.Warn(Loc.T("Ops.Unmount.LogDetach", p.FilePath));
             VirtualDisk.DetachLocal(p.FilePath);
         }
         else if (smb.Count == 0 && p.State == MountState.Locked)
         {
-            throw new InvalidOperationException("Файл заблокований процесом, який не є SMB-сесією чи локальним підключенням. " +
-                                                "Перевірте Resource Monitor → CPU → Associated Handles.");
+            throw new InvalidOperationException(Loc.T("Ops.Unmount.LockedByProcess"));
         }
         Thread.Sleep(500);
         p.SetHandles(Array.Empty<SmbHandle>());
         p.State = ProfileScanner.ProbeLock(p.FilePath);
-        p.LastResult = p.State == MountState.Free ? "Відмонтовано" : "Після відмонтування стан: " + p.StateText;
+        p.LastResult = p.State == MountState.Free ? Loc.T("Ops.Unmount.Done") : Loc.T("Ops.Unmount.StateAfter", p.StateText);
     }
 
     private static long SafeLength(string f) { try { return new FileInfo(f).Length; } catch { return 0; } }
@@ -553,12 +548,12 @@ public static class ProfileOperations
                     return;
                 }
             }
-            Log.Warn("ReTrim: том не знайдено у MSFT_Volume");
+            Log.Warn(Loc.T("Ops.ReTrim.NoVolume"));
         }
         catch (Exception ex)
         {
             // Not fatal: NTFS already sends TRIM on delete, compaction still reclaims space.
-            Log.Warn("ReTrim не виконано: " + ex.Message);
+            Log.Warn(Loc.T("Ops.ReTrim.Failed", ex.Message));
         }
     }
 
@@ -622,7 +617,7 @@ public static class ProfileOperations
                     node.FilesSize += f.Length;
                     Consider(f, relPath);
                     long seen = Interlocked.Add(ref _seen, f.Length);
-                    if (usedBytes > 0) r.Report((double)seen / usedBytes, $"{relPath} · {Format.Bytes(seen)} з {Format.Bytes(usedBytes)}");
+                    if (usedBytes > 0) r.Report((double)seen / usedBytes, Loc.T("Ops.Analyze.Progress", relPath, Format.Bytes(seen), Format.Bytes(usedBytes)));
                 }
                 else if (e is DirectoryInfo sub) subs.Add(sub);
             }

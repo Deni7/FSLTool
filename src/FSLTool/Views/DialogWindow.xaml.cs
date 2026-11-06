@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 
@@ -37,7 +38,9 @@ public partial class DialogWindow : Window
             _ => ("i", "Accent"),
         };
         IconGlyph.Text = glyph;
-        IconBadge.Background = (Brush)res[brush];
+        // soft badge + coloured glyph from the current palette (Accent / Warn / Crit + Soft / Text)
+        IconBadge.SetResourceReference(Border.BackgroundProperty, brush + "Soft");
+        IconGlyph.SetResourceReference(TextBlock.ForegroundProperty, brush + "Text");
 
         YesButton.Content = req.YesText;
         YesButton.Style = (Style)res[req.Kind == DialogKind.Danger ? "DangerButton" : "PrimaryButton"];
@@ -80,17 +83,18 @@ public static class Dialog
     /// <summary>Tests can answer dialogs automatically; return value = "Yes"/OK pressed.</summary>
     public static Func<DialogRequest, bool>? Interceptor { get; set; }
 
-    public static bool Confirm(string title, string message, string yes = "Так", string no = "Скасувати",
+    /// <summary>Yes/No question; null button texts = Common.Yes / Common.Cancel in the current language.</summary>
+    public static bool Confirm(string title, string message, string? yes = null, string? no = null,
                                DialogKind kind = DialogKind.Question) =>
-        Show(new DialogRequest(title, message, kind, yes, no));
+        Show(new DialogRequest(title, message, kind, yes ?? Loc.T("Common.Yes"), no ?? Loc.T("Common.Cancel")));
 
-    public static void Info(string title, string message) => Show(new DialogRequest(title, message, DialogKind.Info, "OK", null));
-    public static void Error(string title, string message) => Show(new DialogRequest(title, message, DialogKind.Error, "OK", null));
+    public static void Info(string title, string message) => Show(new DialogRequest(title, message, DialogKind.Info, Loc.T("Common.Ok"), null));
+    public static void Error(string title, string message) => Show(new DialogRequest(title, message, DialogKind.Error, Loc.T("Common.Ok"), null));
 
-    /// <summary>Asks for a line (or block) of text; null = cancelled.</summary>
-    public static string? Prompt(string title, string message, string initial, string yes = "OK", bool multiline = false)
+    /// <summary>Asks for a line (or block) of text; null = cancelled. Null <paramref name="yes"/> = Common.Ok.</summary>
+    public static string? Prompt(string title, string message, string initial, string? yes = null, bool multiline = false)
     {
-        var req = new DialogRequest(title, message, DialogKind.Question, yes, "Скасувати") { Input = initial, Multiline = multiline };
+        var req = new DialogRequest(title, message, DialogKind.Question, yes ?? Loc.T("Common.Ok"), Loc.T("Common.Cancel")) { Input = initial, Multiline = multiline };
         string? text = null;
         return Show(req, w => text = w.InputText) ? text ?? initial : null;
     }

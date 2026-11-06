@@ -13,7 +13,7 @@ namespace FSLTool.Services;
 /// </summary>
 public static class AdService
 {
-    private sealed record State(bool Disabled, string? Reason, DateTime? LastLogon);
+    private sealed record State(bool Disabled, string? ReasonKey, DateTime? LastLogon);
 
     /// <summary>SID → state; null = looked up but not found in that domain (local account etc.).</summary>
     private static readonly ConcurrentDictionary<string, State?> _cache = new(StringComparer.OrdinalIgnoreCase);
@@ -40,14 +40,14 @@ public static class AdService
             catch (Exception ex)
             {
                 // DC unreachable / no rights: nothing is flagged, retried on the next scan
-                Log.Warn($"AD ({domain.Key}): не вдалося перевірити стан облікових записів: {ex.Message}");
+                Log.Warn(Loc.T("Svc.Ad.CheckFailed", domain.Key, ex.Message));
             }
         }
 
         foreach (var p in profiles)
         {
             if (p.Sid != null && !p.IsOrphan && _cache.TryGetValue(p.Sid, out var s) && s != null)
-                p.SetAdState(true, s.Disabled, s.Reason, s.LastLogon);
+                p.SetAdState(true, s.Disabled, s.ReasonKey == null ? null : Loc.T(s.ReasonKey), s.LastLogon);
             else
                 p.SetAdState(false, false, null, null);
         }
@@ -84,8 +84,8 @@ public static class AdService
                     var last = FileTime(First(r, "lastLogonTimestamp"));
 
                     string? reason = null;
-                    if ((uac & UF_ACCOUNTDISABLE) != 0) reason = "вимкнений в AD";
-                    else if (expires is DateTime e && e < DateTime.Now) reason = "термін дії минув";
+                    if ((uac & UF_ACCOUNTDISABLE) != 0) reason = "Svc.Ad.Disabled";
+                    else if (expires is DateTime e && e < DateTime.Now) reason = "Svc.Ad.Expired";
                     _cache[sid] = new State(reason != null, reason, last);
                     seen.Add(sid);
                 }

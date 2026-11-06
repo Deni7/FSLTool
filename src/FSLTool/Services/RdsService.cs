@@ -10,12 +10,12 @@ internal sealed record RdsSession(string Host, int Id, string User, WTS_CONNECTS
 {
     public string StateText => State switch
     {
-        WTS_CONNECTSTATE_CLASS.Active => "активний",
-        WTS_CONNECTSTATE_CLASS.Disconnected => "відключений",
-        WTS_CONNECTSTATE_CLASS.Idle => "простій",
+        WTS_CONNECTSTATE_CLASS.Active => Loc.T("Svc.Rds.State.Active"),
+        WTS_CONNECTSTATE_CLASS.Disconnected => Loc.T("Svc.Rds.State.Disconnected"),
+        WTS_CONNECTSTATE_CLASS.Idle => Loc.T("Svc.Rds.State.Idle"),
         _ => State.ToString(),
     };
-    public override string ToString() => $"{Host} · сеанс {Id} · {User} ({StateText})";
+    public override string ToString() => Loc.T("Svc.Rds.Session", Host, Id, User, StateText);
 }
 
 /// <summary>
@@ -41,7 +41,7 @@ internal static class RdsService
         try
         {
             if (!WTSEnumerateSessionsW(server, 0, 1, out var buf, out int count))
-                throw new Win32Exception(Marshal.GetLastWin32Error(), $"WTSEnumerateSessions на {host}");
+                throw new Win32Exception(Marshal.GetLastWin32Error(), Loc.T("Svc.Rds.EnumFailed", host));
             try
             {
                 int size = Marshal.SizeOf<WTS_SESSION_INFO>();

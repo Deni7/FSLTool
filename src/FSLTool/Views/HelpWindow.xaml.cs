@@ -16,10 +16,8 @@ public partial class HelpWindow : Window
     public HelpWindow()
     {
         InitializeComponent();
-        var doc = MarkdownLite.Render(LoadText(), out var toc);
-        Viewer.Document = doc;
-        Toc.ItemsSource = toc;
-        SourceInitialized += (_, _) => WindowChrome.UseDarkTitleBar(this);
+        Render();
+        WindowChrome.Attach(this);
         SearchBox.TextChanged += (_, _) =>
         {
             SearchHint.Visibility = SearchBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -31,8 +29,32 @@ public partial class HelpWindow : Window
             if (e.Key == Key.Escape) Close();
             else if (e.Key == Key.F && Keyboard.Modifiers == ModifierKeys.Control) { SearchBox.Focus(); SearchBox.SelectAll(); e.Handled = true; }
         };
-        Closed += (_, _) => { if (_open == this) _open = null; };
+        // language switched while the help is open: show the help in the new language
+        Loc.Changed += OnLanguageChanged;
+        // the document's colours are fixed when it is built: rebuild it in the new theme
+        ThemeManager.Changed += OnLanguageChanged;
+        Closed += (_, _) =>
+        {
+            Loc.Changed -= OnLanguageChanged;
+            ThemeManager.Changed -= OnLanguageChanged;
+            if (_open == this) _open = null;
+        };
     }
+
+    private void OnLanguageChanged() => Render();
+
+    /// <summary>(Re)builds the document and the contents from the help in the current language.</summary>
+    private void Render()
+    {
+        var doc = MarkdownLite.Render(LoadText(), out var toc);
+        Viewer.Document = doc;
+        Toc.ItemsSource = toc;
+        _searchFrom = null;
+        SearchStatus.Text = "";
+    }
+
+    /// <summary>Re-renders the open help window (if any), e.g. after the UI language changed.</summary>
+    public static void Reload() => _open?.Render();
 
     /// <summary>Opens the help (or brings the already open one to the front).</summary>
     public static void ShowHelp(Window? owner)
@@ -49,13 +71,19 @@ public partial class HelpWindow : Window
         _open.Show();
     }
 
-    /// <summary>The embedded Docs/Help.md.</summary>
+    /// <summary>The embedded help in the current language (→ English → the Ukrainian Docs/Help.md).</summary>
     public static string LoadText()
     {
-        using var s = Assembly.GetExecutingAssembly().GetManifestResourceStream("FSLTool.Docs.Help.md");
-        if (s == null) return "# Довідка\n\nДовідку не знайдено в збірці.";
-        using var r = new StreamReader(s);
-        return r.ReadToEnd();
+        var asm = Assembly.GetExecutingAssembly();
+        foreach (var name in new[] { Loc.HelpResource(Loc.Lang), Loc.HelpResource("en"), "FSLTool.Docs.Help.md" })
+        {
+            if (name == null) continue;
+            using var s = asm.GetManifestResourceStream(name);
+            if (s == null) continue;
+            using var r = new StreamReader(s);
+            return r.ReadToEnd();
+        }
+        return Loc.T("HelpWin.NotFound");
     }
 
     private void Toc_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -94,14 +122,14 @@ public partial class HelpWindow : Window
         var hit = FindFrom(_searchFrom ?? doc.ContentStart, query) ?? FindFrom(doc.ContentStart, query);
         if (hit == null)
         {
-            SearchStatus.Text = $"«{query}» не знайдено";
+            SearchStatus.Text = Loc.T("HelpWin.NotFoundQuery", query);
             return false;
         }
         var (start, end) = hit.Value;
         Viewer.Selection?.Select(start, end);
         _searchFrom = end;
         if (start.Paragraph is Paragraph p) ScrollToTop(p);
-        SearchStatus.Text = "Enter — наступний збіг";
+        SearchStatus.Text = Loc.T("HelpWin.NextMatch");
         return true;
     }
 

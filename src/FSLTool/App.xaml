@@ -5,6 +5,8 @@
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
+                <!-- first: the palette, swapped by ThemeManager (light / dark) -->
+                <ResourceDictionary Source="Themes/Palette.Light.xaml"/>
                 <ResourceDictionary Source="Themes/Theme.xaml"/>
             </ResourceDictionary.MergedDictionaries>
             <v:SeverityBrushConverter x:Key="SevBrush"/>
@@ -12,7 +14,9 @@
             <v:VisibleConverter x:Key="Vis"/>
             <v:EnumEqualsConverter x:Key="EnumEq"/>
             <v:FilterMatchConverter x:Key="FilterMatch"/>
-            <v:BoolToLengthConverter x:Key="BoolLength"/>
+            <v:ArcConverter x:Key="Arc"/>
+            <v:InitialsConverter x:Key="Initials"/>
+            <v:AvatarBrushConverter x:Key="AvatarBrush"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
