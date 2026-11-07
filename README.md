@@ -132,7 +132,23 @@ schtasks /create /tn "FSLTool scan" /sc daily /st 06:00 /ru SYSTEM /rl HIGHEST ^
 
 - The task must run with the highest privileges (`/rl HIGHEST`).
 - Under SYSTEM, network resources and AD are accessed as the computer account. If the profiles are on **another** server, use a service account with administrator rights.
-- In cmd, run via `start /wait FSLTool.exe …`, otherwise the command prompt will not wait for completion.
+- For running it by hand from cmd or PowerShell, see below.
+
+### Running manually from a console
+
+To test a command or run it once, you can start it by hand.
+
+- The console must be opened **as administrator**. Otherwise Windows will not start the program: PowerShell reports “The requested operation requires elevation”.
+- **cmd:** `start /wait FSLTool.exe clean --max-minutes 240`. Without `start /wait` the command prompt does not wait for completion and does not show the output.
+- **PowerShell:** `.\FSLTool.exe clean --max-minutes 240 | Out-Default`. `| Out-Default` makes PowerShell wait for completion; the exit code is in `$LASTEXITCODE`. `start /wait` does not work in PowerShell: there `start` means `Start-Process`, which has a different syntax.
+- **Cyrillic in PowerShell.** The program writes UTF-8, while PowerShell reads the output in the console code page by default (866 on Ukrainian systems), so Cyrillic text (Ukrainian output, user and folder names) appears garbled. The work and the log are not affected. To display it correctly, run this in the same window first:
+
+```powershell
+[Console]::OutputEncoding = [Text.Encoding]::UTF8
+.\FSLTool.exe clean --max-minutes 240 | Out-Default
+```
+
+To avoid typing the first line every time, add it to your PowerShell profile (`notepad $PROFILE`).
 
 ## Documentation
 
