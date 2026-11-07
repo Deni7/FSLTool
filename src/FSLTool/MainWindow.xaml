@@ -987,7 +987,7 @@
                                                    Visibility="{Binding DeleteBlocked, Converter={StaticResource Vis}}"/>
                                     </StackPanel>
 
-                                    <Expander Style="{StaticResource Disclosure}" BorderBrush="{DynamicResource OnHero}" Header="{l:Tr Main.Actions.More}" Margin="0,8,0,0">
+                                    <Expander Style="{StaticResource Disclosure}" BorderBrush="{DynamicResource OnHero}" Background="{DynamicResource HeroHover}" Header="{l:Tr Main.Actions.More}" Margin="0,8,0,0">
                                         <StackPanel Margin="0,4,0,0">
                                             <Button Style="{StaticResource HeroAction}" Command="{Binding GrowCommand}" ToolTip="{l:Tr Main.Actions.GrowTip}">
                                                 <DockPanel>

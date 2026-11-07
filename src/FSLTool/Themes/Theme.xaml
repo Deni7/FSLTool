@@ -842,11 +842,14 @@
          BorderBrush = colour of the header only; the content keeps the inherited text colour. -->
     <Style x:Key="Disclosure" TargetType="Expander">
         <Setter Property="BorderBrush" Value="{DynamicResource Accent}"/>
+        <!-- Background — колір підсвічування заголовка при наведенні/фокусі. -->
+        <Setter Property="Background" Value="{DynamicResource Hover}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Expander">
                     <DockPanel>
                         <ToggleButton x:Name="hdr" DockPanel.Dock="Top" Cursor="Hand" FocusVisualStyle="{x:Null}"
+                                      Tag="{TemplateBinding Background}"
                                       IsChecked="{Binding IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
                             <ToggleButton.Template>
                                 <ControlTemplate TargetType="ToggleButton">
@@ -855,10 +858,10 @@
                                     </Border>
                                     <ControlTemplate.Triggers>
                                         <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="b" Property="Background" Value="{DynamicResource Hover}"/>
+                                            <Setter TargetName="b" Property="Background" Value="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}"/>
                                         </Trigger>
                                         <Trigger Property="IsKeyboardFocused" Value="True">
-                                            <Setter TargetName="b" Property="Background" Value="{DynamicResource Hover}"/>
+                                            <Setter TargetName="b" Property="Background" Value="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}"/>
                                         </Trigger>
                                     </ControlTemplate.Triggers>
                                 </ControlTemplate>
