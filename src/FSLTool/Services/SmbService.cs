@@ -164,7 +164,8 @@ public static class SmbService
             {
                 try
                 {
-                    var e = await Dns.GetHostEntryAsync(t.ip).WaitAsync(TimeSpan.FromSeconds(3));
+                    // ConfigureAwait(false): the caller blocks in Task.WaitAll — resuming on its (UI) context would deadlock
+                    var e = await Dns.GetHostEntryAsync(t.ip).WaitAsync(TimeSpan.FromSeconds(3)).ConfigureAwait(false);
                     lock (_dns) _dns[t.client] = e.HostName.Split('.')[0].ToUpperInvariant();
                 }
                 catch { lock (_dns) _dns.TryAdd(t.client, t.client); } // no PTR / timeout: keep the IP

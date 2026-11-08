@@ -150,6 +150,8 @@ To test a command or run it once, you can start it by hand.
 
 To avoid typing the first line every time, add it to your PowerShell profile (`notepad $PROFILE`).
 
+What the console shows: first the scan phases (looking for containers, VHD(X) headers, mount state, accounts and AD) and a summary; then for each container a `[N/total]` line, the operation stages (no percentages) and the result; finally the overall summary. On a big server the scan and single stages (deleting by rules, compaction) can take several minutes without new lines. Phases and `[N/total]` lines go only to the console and to the report's `.log` attachment; everything else is also written to the audit log.
+
 ## Documentation
 
 - **In the app:** the **"?"** button in the top bar, "Help" on the "Settings" page or the F1 key opens the built-in help describing all features and modes. It has a table of contents and search (Ctrl+F, Enter — next match). The text lives in [`src/FSLTool/Docs/Help.md`](src/FSLTool/Docs/Help.md) (Ukrainian) and [`src/FSLTool/Docs/Help.en.md`](src/FSLTool/Docs/Help.en.md) (English) and is embedded in the exe; help is shown in the interface language.

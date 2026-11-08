@@ -42,6 +42,9 @@ public static class Headless
 
     public static int Run(string[] args)
     {
+        // Run() is called from OnStartup on the WPF dispatcher thread, and the whole run blocks it.
+        // Without this, any await inside a blocking call would try to resume on the blocked dispatcher and hang forever.
+        SynchronizationContext.SetSynchronizationContext(null);
         InitConsole();
         // nothing may block on a dialog without a window
         Dialog.Interceptor = req => { Log.Warn("[CLI] " + Loc.T("Cli.DialogSkipped", req.Title, req.Message)); return false; };
@@ -149,13 +152,18 @@ public static class Headless
             rules = Storage.LoadRules(settings);   // a broken rules file must stop the run
 
         // ── scan: same phases as the window ──
+        // progress goes to the console only: the scan takes minutes on a big server and must not look like a hang
         var sizeCache = Storage.LoadSizeCache();
+        Phase("Cli.Phase.Discover", settings.ProfilePaths.Count);
         var list = ProfileScanner.Discover(settings.ProfilePaths, sizeCache, ct);
         var analysis = Storage.LoadAnalysisCache();
         ProfileStore.ApplyCachedAnalysis(list, analysis);
+        Phase("Cli.Phase.Headers", list.Count);
         ProfileScanner.ReadHeaders(list, sizeCache, null, ct);
         Storage.SaveSizeCache(sizeCache);
+        Phase("Cli.Phase.States");
         ProfileScanner.UpdateStates(list, ct);
+        Phase("Cli.Phase.Accounts");
         ProfileScanner.ResolveAccounts(list, ct);
         AdService.Resolve(list, ct);
         ProfileStore.RecordHistory(list);
@@ -394,6 +402,9 @@ public static class Headless
             return code == ExitOk ? ExitMailFailed : code;
         }
     }
+
+    private static void Phase(string key, params object[] args) =>
+        Out($"{DateTime.Now:HH:mm:ss}       · " + Loc.T(key, args));
 
     /// <summary>Prints each new stage of an operation (the detailed progress would flood a log file).</summary>
     private static OpReporter StageReporter()

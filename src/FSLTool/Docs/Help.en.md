@@ -416,6 +416,8 @@ To test a command or run it once, you can start it by hand.
 
 To avoid typing the first line every time, add it to your PowerShell profile (`notepad $PROFILE`).
 
+What the console shows: first the scan phases (looking for containers, VHD(X) headers, mount state, accounts and AD) and a summary; then for each container a `[N/total]` line, the operation stages (no percentages) and the result; finally the overall summary. On a big server the scan and single stages (deleting by rules, compaction) can take several minutes without new lines. Phases and `[N/total]` lines go only to the console and to the report's `.log` attachment; everything else is also written to the audit log.
+
 ### Email report
 
 When a command finishes, the program can send a report email. It uses the program's colors (dark theme) and contains:
